@@ -32,7 +32,8 @@ covariates = c("age_std", "sex_std")
 ## Define trainControl
 fitControl = trainControl(method = "repeatedcv",
                           number = 10,
-                          repeats = 10)
+                          repeats = 10,
+                          savePredictions = TRUE)
 
 
 
@@ -43,7 +44,7 @@ fitControl = trainControl(method = "repeatedcv",
 # 2.1 Baseline Tables------------------------------------
 
 ## Baseline Table of clinical and sociodemographic characteristics
-Table1 = baselineTable(dat, round_dec = 2, placeholder = "   ", grouping.var = "CRP_inflamed",
+Table1 = baselineTable(dat, round_dec = 2, placeholder = "   ", grouping.var = "hsCRP_inflamed",
                        vars = c("sex", "age", "socialclass_cat", 
                                 "countryorigin", "ethnicity", "employed",
                                 "t0_bdi", "t0_madrs", "t0_bsi_depr",
@@ -56,11 +57,13 @@ Table1 = baselineTable(dat, round_dec = 2, placeholder = "   ", grouping.var = "
                                   "Number of psychiatric diagnoses"))
 
 ## Baseline Tables of inflammatory parameters
-baselineTable(dat, round_dec = 2, placeholder = "   ", grouping.var = "CRP_inflamed",
-              vars = cyto_ref$vars,
-              labels = cyto_ref$labels)
+TableS1 = baselineTable(dat, round_dec = 2, placeholder = "   ", 
+                        grouping.var = "hsCRP_inflamed",
+                        vars = cyto_ref$vars,
+                        labels = cyto_ref$labels)
 
 exportPubHelpercsv(Table1, file = "./Results/Table1.csv")
+exportPubHelpercsv(TableS1, file = "./Results/TableS1.csv")
 
 
 # 3 Model Training---------------------------------------
@@ -331,7 +334,7 @@ cyto_cor = cyto_cor[row.names(cyto_cor) %in% cyto_ref[cyto_ref$no.na == 1, "labe
 cyto_cor_pmat = cyto_cor_pmat[row.names(cyto_cor_pmat) %in% cyto_ref[cyto_ref$no.na == 1, "labels"],
                               row.names(cyto_cor_pmat) %in% cyto_ref[cyto_ref$no.na == 1, "labels"]]
 
-## Export with width=; height=
+## Export with width=900; height=612
 ggcorrplot(cyto_cor, 
            hc.order = TRUE, type = "lower", 
            legend.title = "", show.legend = TRUE,

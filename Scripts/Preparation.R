@@ -15,7 +15,7 @@ library("readxl")
 load("/home/nkappelmann/OPTIMA/OPTIMA_Analyses/Data/Processed/02_PsychometricData.RData")
 
 ## Load cytokine data and related IDs
-cyto_dat = readRDS("/binder/mgp/datasets/2020_ImmuneDepression/cytokine/01_data_for_analysis.rds")
+cyto_dat = readRDS("/binder/mgp/datasets/2020_ImmuneDepression/cytokine/02_data_for_analysis.rds")
 cyto_IDs = read_excel("/binder/mgp/datasets/2020_ImmuneDepression/cytokine/01_become_optima_randomization_STD_Controls_Pheno_1219.xlsx")
 
 # Save biobank study IDs
@@ -30,7 +30,8 @@ cyto_dat = cyto_dat[!duplicated(cyto_dat$ID),]
 
 # Save variable names in cytokine reference
 cyto_ref = data.frame(vars = NA,
-                      labels = colnames(cyto_dat)[9:ncol(cyto_dat)])
+                      labels = colnames(cyto_dat)[9:ncol(cyto_dat)],
+                      stringsAsFactors = FALSE)
 
 # Change column names by excluding hyphens and slashes
 colnames(cyto_dat) = gsub("/", "_", colnames(cyto_dat), fixed = TRUE)
@@ -65,7 +66,7 @@ dat$age_std = scale(dat$age)
 dat$t0_bdi_std = scale(dat$t0_bdi)
 
 ## Get Top 27% CRP cut-off
-dat$CRP_inflamed = factor(ifelse(dat$CRP > quantile(dat$CRP, prob=1-27/100), 
+dat$hsCRP_inflamed = factor(ifelse(dat$CRP > quantile(dat$hsCRP, prob=1-27/100), 
                                  "Inflamed", "Non-Inflamed"),
                           levels = c("Non-Inflamed", "Inflamed"))
 
@@ -129,6 +130,9 @@ for(i in 1:nrow(dat))   {
             }
       }
 }
+
+## Create change variable by subtracting the t0 from the t7_locf score.
+dat$madrs_locf_improve = dat$t0_madrs - dat$t7_madrs_locf
 
 
 # 3 Age, Sex & Non-normality Corrections-----------------
