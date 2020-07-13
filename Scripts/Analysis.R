@@ -313,9 +313,27 @@ vis_dat$model = factor(vis_dat$model, levels = c("Baseline", "Cytokines", "Basel
 
 
 
+# 5.2 Cytokine Descriptive Statistics--------------------
+
+## Get complete data proportion per cytokine
+cyto_ref$perc.complete = (nrow(dat) - cyto_ref$na.sum) / nrow(dat) * 100
+
+## Get complete variable
+cyto_ref$complete = ifelse(cyto_ref$no.na == 1, "Complete", "Not Complete")
+
+## Create barplot
+ggplot(cyto_ref, aes(x = reorder(labels, perc.complete), y = perc.complete, fill = complete)) +
+   geom_bar(aes(fill = complete), col = "black", stat = "identity") +
+   scale_fill_brewer(palette = "Dark2") +
+   labs(x = "", y = "Complete Data (%)") +
+   coord_flip() +
+   theme_bw() +
+   theme(legend.position = "none",
+         legend.title = element_blank())
 
 
-# 5.2 Cytokine Correlations------------------------------
+
+# 5.3 Cytokine Correlations------------------------------
 
 
 ## Save correlation matrix and p-value matrix
@@ -345,7 +363,7 @@ ggcorrplot(cyto_cor,
 
 
 
-# 5.3 ML Prediction Scatter Plots------------------------
+# 5.4 ML Prediction Scatter Plots------------------------
 
 ## Prediction (export with: width = 800, height = standard)
 ggplot(vis_dat, aes(x = t7_bdi_pred, y = t7_bdi_locf)) +
@@ -365,7 +383,7 @@ ggplot(vis_dat, aes(x = t7_bdi_pred, y = t7_bdi_locf)) +
 
 
 
-# 5.3 Absolute Residual Boxplots-------------------------
+# 5.5 Absolute Residual Boxplots-------------------------
 
 ## Calculate absolute residuals
 vis_dat$abs_residuals = with(vis_dat, abs(t7_bdi_locf - t7_bdi_pred))
@@ -384,7 +402,7 @@ ggplot(vis_dat, aes(x = method, y = abs_residuals)) +
 
 
 
-# 5.5 Fit Statistics-------------------------------------
+# 5.6 Fit Statistics-------------------------------------
 
 ## Set factor levels
 fit.stats$model = factor(fit.stats$model, levels = c("Null", "Baseline", "Cytokines", 
