@@ -10,6 +10,7 @@
 ## Load Packages
 library("tidyverse")
 library("readxl")
+library("lme4")
 
 ## Load psychometric data
 load("/home/nkappelmann/OPTIMA/OPTIMA_Analyses/Data/Processed/02_PsychometricData.RData")
@@ -97,12 +98,66 @@ cyto_ref$no.na = ifelse(cyto_ref$na.sum >= 1, 0, 1)
 
 # 2 Preprocessing----------------------------------------
 
-# 2.1 LOCF of depressive symptom outcome-----------------
+# 2.1 Interpolation of depressive symptom outcome--------
 
 # 2.1.1 BDI----------------------------------------------
 
-## Create empty bdi_locf variable
-dat$t7_bdi_locf = NA
+## Create longitudinal BDI data
+dat_l = with(dat,
+             data.frame(ID = rep(ID, 8),
+                        time = rep(0:7, each = nrow(dat)),
+                        bdi = c(t0_bdi, t1_bdi, t2_bdi, t3_bdi, t4_bdi, t5_bdi, t6_bdi, t7_bdi)))
+
+## Obtain IDs with minimum of two BDI values
+ids_with_bdi = dat[, paste0("t", 0:7, "_bdi")] %>% is.na() %>% rowSums < 7
+
+## Create prediction model based on individuals with complete BDI data
+model = lmer(bdi ~ time + I(time^2) + (1 + time | ID), 
+             data = dat_l[rep(ids_with_bdi, 8),], REML = TRUE)
+
+## Extract predicted BDI for individuals without t7_bdi
+predict_dat = dat_l[dat_l$ID %in% dat[is.na(dat$t7_bdi), "ID"], ]
+
+
+
+## Extract person-specific random intercept and random slope for time
+model_ran_dat = ranef(model)$ID
+model_ran_dat$ID = row.names(model_ran_dat)
+colnames(model_ran_dat) = c("bdi_ran_int", "bdi_ran_slope", "ID")
+
+dat = merge(dat, model_ran_dat, by = "ID", all.x = TRUE)
+
+
+
+
+## Create empty bdi_intpol variable
+dat$t7_bdi_intpol = NA
+
+## Obtain rows of individuals with to-be-interpolated data
+rows_to_intpol = which(is.na(dat$t7_bdi))
+
+
+## Use the appox function for interpolation
+for(i in rows_to_intpol)   {
+   # Create subset of to-be-interpolated participant
+   id_dat = dat[i, c("ID", paste0("t", 0:7, "_bdi"))]
+   
+   # Perform interpolation only if at least 2 datapoints are available
+   if(sum(!is.na(id_dat[1, 2:9])) >= 2)  {
+      
+   # Use the appox function to interpolate bdi values
+   intpol_dat = data.frame(approx(x = 1:8, y = as.numeric(id_dat[1, paste0("t", 0:7, "_bdi")]), 
+                                  xout = 1:8, rule = 2,
+                                  na.rm = TRUE, method = "linear"))
+   
+   # TEMP: Print result
+   print(id_dat)
+   print(t(intpol_dat))
+   
+   # Save value for T7
+   dat[i, "t7_bdi_intpol"] = intpol_dat[8, "y"]
+   }
+}
 
 ## Run loop to carry forward the last observed bdi-value
 for(i in 1:nrow(dat))   {
