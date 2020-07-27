@@ -16,11 +16,11 @@ library("lme4")
 load("/home/nkappelmann/OPTIMA/OPTIMA_Analyses/Data/Processed/02_PsychometricData.RData")
 
 ## Load cytokine data and related IDs
-cyto_dat = readRDS("/binder/mgp/datasets/2020_ImmuneDepression/cytokine/02_data_for_analysis.rds")
+cyto_dat = readRDS("/binder/mgp/datasets/2020_ImmuneDepression/cytokine/02_data_for_analysis_imputed.rds")
 cyto_IDs = read_excel("/binder/mgp/datasets/2020_ImmuneDepression/cytokine/01_become_optima_randomization_STD_Controls_Pheno_1219.xlsx")
 
 # Save biobank study IDs
-cyto_dat$ID.bio = row.names(cyto_dat)
+cyto_dat$ID.bio = cyto_dat$Row.names
 
 # Merge OPTIMA IDs
 cyto_dat = merge(cyto_dat, cyto_IDs[, c("ID", "Lagerung_BC.Tube")], 
@@ -31,14 +31,14 @@ cyto_dat = cyto_dat[!duplicated(cyto_dat$ID),]
 
 # Save variable names in cytokine reference
 cyto_ref = data.frame(vars = NA,
-                      labels = colnames(cyto_dat)[9:ncol(cyto_dat)],
+                      labels = colnames(cyto_dat)[10:ncol(cyto_dat)],
                       stringsAsFactors = FALSE)
 
 # Change column names by excluding hyphens and slashes
 colnames(cyto_dat) = gsub("/", "_", colnames(cyto_dat), fixed = TRUE)
 colnames(cyto_dat) = gsub("-", ".", colnames(cyto_dat), fixed = TRUE)
 colnames(cyto_dat) = gsub(" ", "_", colnames(cyto_dat), fixed = TRUE)
-cyto_ref$vars = colnames(cyto_dat)[9:ncol(cyto_dat)]
+cyto_ref$vars = colnames(cyto_dat)[10:ncol(cyto_dat)]
 cyto_ref = cyto_ref[cyto_ref$vars != "ID",]
 
 ## Remove BeCOME data
@@ -158,6 +158,9 @@ for(i in rows_to_intpol)   {
    dat[i, "t7_bdi_intpol"] = intpol_dat[8, "y"]
    }
 }
+
+## Create locf variable
+dat$t7_bdi_locf = NA
 
 ## Run loop to carry forward the last observed bdi-value
 for(i in 1:nrow(dat))   {
