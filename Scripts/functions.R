@@ -1,146 +1,202 @@
-# ------------------------------------------------
-# Functions---------------------------------------
-# ------------------------------------------------
+# -------------------------------------------------------
+# Functions----------------------------------------------
+# -------------------------------------------------------
 
 
-# 1 Preparation-----------------------------------
+# nested.cv----------------------------------------------
 
-## Load Packages
-library("tidyverse")
-
-
-# 2 BaselineTable---------------------------------
-
-baselineTable <- function(data, vars, labels = NULL, grouping.var, round_dec = 2,
-                          print.vars = FALSE)     {
+nested.cv <- function(
+   data, 
+   x,
+   y,
+   k.outer = 10, # number of outer CV folds
+   k.inner = 10, # number of inner CV folds
+   num_repeats = 1, # number of CV repeats
+   perm.test = FALSE, # Should y be shuffled to obtain a permutation distribution?
+   runGLMnet = TRUE,
+   runRF = TRUE,
+   runSVM = TRUE,
+   runBART = TRUE
+)  {
+   
+   ## Create folds
+   obs.all = nrow(data)
+   fold.pool.outer = rep_len(sample(1:k.outer), length.out = obs.all)
+   
+   ## Define fitControl object for caret
+   fitControl = trainControl(method = "cv",
+                             number = k.inner,
+                             savePredictions = TRUE)
+   
+   ## Define tuneGrid
+   glmnet.tuneGrid = expand.grid(alpha = seq(from = 0, to = 1, by = 0.2),
+                                 lambda = seq(from = 0, to = 1, by = 0.2))
+   rf.tuneGrid = data.frame(mtry = unique(round(seq(from = 2, to = length(x), length.out = 5))))
+   bart.tuneGrid = expand.grid(num_trees = c(10, 15, 20, 50), 
+                               k = 2, 
+                               alpha = 0.95, 
+                               beta = 2, 
+                               nu = 3)
+   
+   ## Create output data.frame for fit statistics
+   fit.stats = expand.grid(num_repeat = 1:num_repeats,
+                           k = 1:k.outer,
+                           model = c("glmnet", "rf", "bart"))
+   fit.stats[, c("RMSE", "Rsquared", "MAE", "alpha", "lambda", "mtry", 
+                 "num_trees", "k.bart", "beta", "nu")] = NA
+   
+   
+   ## Create output data.frame for variable importance
+   varImp.stats = fit.stats[, c("num_repeat", "k", "model")]
+   varImp.stats[, sort(x)] = NA
+   
+   ## Run repeats
+   for(repeats in 1:num_repeats)  {
       
-      # Set labels
-      if(is.null(labels)){labels = vars}
+      ## Print repeat number to index progress
+      cat(paste0("\nRepeat no.:\t\t", repeats))
       
-      # Give error if labels have different length
-      if(length(labels) != length(vars))  {
-            stop("labels need to have the same length as vars.")
+      ## Permute Y if a permutation test is indicated
+      if(perm.test == TRUE)   {
+         data[, y] = sample(data[, y], replace = FALSE)
       }
       
+      ## Assign folds
+      data$fold.outer = sample(fold.pool.outer)
       
-      # Infer classes and levels of variables
-      var.details = data.frame(var = vars,
-                               class = NA,
-                               levels = NA)
-      for(i in vars) {
-            var.details[var.details$var == i, "class"] = class(data[, i])
-            var.details[var.details$var == i, "levels"] = length(unique(data[!is.na(data[, i]), i]))
+      ## Run outer CV
+      for(outer in 1:k.outer) {
+         
+         ## Print outer fold number to index progress
+         cat(paste0("\n---Outer CV-Fold no.:\t", outer))
+         
+         ## Divide data into train and test sets
+         train = data[data$fold.outer != outer,]
+         test = data[data$fold.outer == outer,]
+         
+         # 1 glmnet-------------------------------------------
+         
+         if(runGLMnet)  {
+            
+            ## Run inner CV
+            glmnet.fit = train(x = train[,x], y = train[,y], 
+                               method = "glmnet", metric = "RMSE", 
+                               trControl = fitControl,
+                               tuneGrid = glmnet.tuneGrid)
+            
+            ## Save index row to save fit.stats output
+            fit.stats.index = which(fit.stats$num_repeat == repeats & 
+                                       fit.stats$k == outer & 
+                                       fit.stats$model == "glmnet")
+            
+            ## Save final tuning parameters
+            fit.stats[fit.stats.index, c("alpha", "lambda")] = glmnet.fit$finalModel$tuneValue
+            
+            ## Predict in independent test set
+            glmnet.preds = predict(glmnet.fit, newdata = test)
+            
+            # Save fit statistics
+            fit.stats[fit.stats.index, c("RMSE", "Rsquared", "MAE")] = 
+               postResample(test[, y], glmnet.preds)
+            
+            ## Save variable importance
+            glmnet.varImp = varImp(glmnet.fit)$importance
+            
+            # save variable label and order by label
+            glmnet.varImp$vars = row.names(glmnet.varImp)
+            glmnet.varImp = arrange(glmnet.varImp, vars)
+            
+            # Save importance values
+            varImp.stats[fit.stats.index, sort(x)] = glmnet.varImp$Overall
+            
+         }
+         
+         
+         # 2 rf-----------------------------------------------
+         
+         if(runRF == TRUE) {
+            
+            ## Run inner CV
+            rf.fit = train(x = train[,x], y = train[,y], 
+                           method = "rf", metric = "RMSE", 
+                           trControl = fitControl,
+                           tuneGrid = rf.tuneGrid
+            )
+            
+            ## Save index row to save fit.stats output
+            fit.stats.index = which(fit.stats$num_repeat == repeats & 
+                                       fit.stats$k == outer & 
+                                       fit.stats$model == "rf")
+            
+            ## Save final tuning parameters
+            fit.stats[fit.stats.index, "mtry"] = rf.fit$finalModel$tuneValue
+            
+            ## Predict in independent test set
+            rf.preds = predict(rf.fit, newdata = test)
+            
+            # Save fit statistics
+            fit.stats[fit.stats.index, c("RMSE", "Rsquared", "MAE")] = 
+               postResample(test[, y], rf.preds)
+            
+            ## Save variable importance
+            rf.varImp = varImp(rf.fit)$importance
+            
+            # save variable label and order by label
+            rf.varImp$vars = row.names(rf.varImp)
+            rf.varImp = arrange(rf.varImp, vars)
+            
+            # Save importance values
+            varImp.stats[fit.stats.index, sort(x)] = rf.varImp$Overall
+            
+         }
+         
+         # 3 BARTmachine--------------------------------------
+         
+         if(runBART == TRUE)  {
+            
+            ## Run inner CV
+            bart.fit = train(x = train[,x], y = train[,y], 
+                             method = "bartMachine", metric = "RMSE", 
+                             trControl = fitControl,
+                             tuneGrid = bart.tuneGrid
+            )
+            
+            ## Save index row to save fit.stats output
+            fit.stats.index = which(fit.stats$num_repeat == repeats & 
+                                       fit.stats$k == outer & 
+                                       fit.stats$model == "bart")
+            
+            ## Save final tuning parameters
+            fit.stats[fit.stats.index, c("num_trees", "k.bart", "alpha", "beta", "nu")] = 
+               bart.fit$finalModel$tuneValue
+            
+            ## Predict in independent test set
+            bart.preds = predict(bart.fit, newdata = test)
+            
+            # Save fit statistics
+            fit.stats[fit.stats.index, c("RMSE", "Rsquared", "MAE")] = 
+               postResample(test[, y], bart.preds)
+            
+            ## Save variable importance
+            bart.varImp = varImp(bart.fit)$importance
+            
+            # save variable label and order by label
+            bart.varImp$vars = row.names(bart.varImp)
+            bart.varImp = arrange(bart.varImp, vars)
+            
+            # Save importance values
+            varImp.stats[fit.stats.index, sort(x)] = bart.varImp$Overall
+            
+         }
+         
       }
       
-      # Define table class
-      var.details$output = ifelse(var.details$class %in% c("numeric", "integer") & 
-                                        var.details$levels > 2, "cont", "cat")
-      
-      ## Create output table
-      output = createOutputTable(data = data, vars = vars, labels = labels, 
-                                 var.details = var.details,
-                                 grouping.var = grouping.var, round_dec = round_dec)
-      
-      if(print.vars == FALSE) {output$vars = NULL}
-      
-      ## Return output
-      return(output)
-      
+   }
+   
+   ## Collate output for fit statistics and variable importance in list
+   output = list(fit = fit.stats, varImp = varImp.stats)
+   
+   return(output)
+   
 }
-
-# 3 createEmptyOutputTable------------------------
-
-
-createOutputTable <- function(data, vars, labels, var.details, grouping.var, round_dec)   {
-      
-      ## Create empty table
-      output = data.frame(vars = character(), 
-                          description = character(),
-                          statistic = character())
-      
-      ## Get nrow
-      nrow_data = nrow(data)
-      
-      for(i in 1:length(vars))    {
-            
-            ## Get new row numbers
-            output.type = var.details[i, "output"]
-            newrows_start = nrow(output) + 1
-            newrows_end = newrows_start + ifelse(output.type == "cont", 3, 
-                                 var.details[i, "levels"] + 1)
-            newrows = newrows_start:newrows_end
-            
-            ## Get unique values if categorical output.type
-            if(output.type == "cat")      {
-                  output.values = unique(data[, vars[i]])
-                  output.values = sort(output.values[!is.na(output.values)])
-            }
-            
-            ## Create new empty rows
-            output[newrows,] = NA
-            
-            ## Set vars and labels
-            output[newrows, "vars"] = vars[i]
-            output[newrows_start, "description"] = labels[i]
-            output[newrows_end, "description"] = "   N Missing (%)"
-            
-            ## Write differently for continuous and categorical variables
-            if(output.type == "cont")     {
-                  # Set descriptions
-                  output[newrows[2:3], "description"] = paste0("   ", c("Mean (SD)",
-                                                                        "Median (IQR)"))
-                  
-                  # Fill Mean (SD)
-                  output[newrows[2], "statistic"] = 
-                        paste0(round(mean(data[,vars[i]], na.rm = TRUE), round_dec), " (",
-                               round(sd(data[, vars[i]], na.rm = TRUE), round_dec), ")")
-                  
-                  # Fill Median (IQR)
-                  output[newrows[3], "statistic"] = 
-                        paste0(round(median(data[,vars[i]], na.rm = TRUE), round_dec), " (",
-                               round(summary(data[, vars[i]])[2], round_dec), "-",
-                               round(summary(data[, vars[i]])[5], round_dec), ")")
-                  
-            } else      {
-                  
-                  # Set descriptions
-                  output[newrows[2:(length(newrows) - 1)], "description"] = 
-                        as.character(output.values)
-                  
-                  # Fill N (%)
-                  for(j in output.values) {
-                        output[output$description == j, "statistic"] = 
-                             paste0(sum(data[!is.na(data[, vars[i]]), vars[i]] == j), " (",
-                                    round(sum(data[!is.na(data[, vars[i]]), vars[i]] == j) / 
-                                                nrow_data * 100, round_dec),
-                                    "%)")
-                  }
-                  
-                  # Add zeroes to output.value descriptions
-                  output[newrows[2:(length(newrows) - 1)], "description"] = 
-                        paste0("   ", output.values)
-            }
-            
-            ## Set missing N (%)
-            output[newrows_end, "statistic"] = 
-                  paste0(sum(is.na(data[, vars[i]])), " (",
-                         round(sum(is.na(data[, vars[i]])) / nrow_data * 100, round_dec), "%)")
-            
-      }
-      
-      ## Return output
-      return(output)
-      
-}
-
-
-# 4 Test function---------------------------------
-
-## Load test data
-#data(cars)
-#cars$speed_cat = ifelse(cars$speed > 15, "Fast Car", "Slow Car")
-
-# Test
-#baselineTable(data = cars, vars = c("dist", "speed", "speed_cat"),
-#              labels = c("Stopping distance (ft)", "Speed (mph)", "Speed (group)"))
 

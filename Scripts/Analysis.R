@@ -11,30 +11,21 @@ library("ggcorrplot")
 library("RColorBrewer")
 library("caret")
 library("glmnet")
+library("bartMachine")
 library("PubHelper")
 
 
 ## Load data
 load("/binder/mgp/datasets/2020_ImmuneDepression/cytokine/Nils_Preprocessed/OPTIMA_Cytokine_PreprocessedData.RData")
 
+# Index participants with minimum of two BDI observations
+ids_with_bdi = dat[, paste0("t", 0:7, "_bdi")] %>% is.na() %>% rowSums < 7
+
 ## Load cytokine reference
 load("/binder/mgp/datasets/2020_ImmuneDepression/cytokine/Nils_Preprocessed/Cytokine_Reference.RData")
 
-
-
-# 1.1 Define Parameters----------------------------------
-
-## Save predictors, covariates, and outcome variables
-x = cyto_ref[cyto_ref$no.na == 1, "vars"]
-y = "bdi_locf_improve"
-covariates = c("age_std", "sex_std")
-
-## Define trainControl
-fitControl = trainControl(method = "repeatedcv",
-                          number = 10,
-                          repeats = 10,
-                          savePredictions = TRUE)
-
+## Source nested cross-validation function
+source("./Scripts/functions.R")
 
 
 
@@ -66,202 +57,224 @@ exportPubHelpercsv(Table1, file = "./Results/Table1.csv")
 exportPubHelpercsv(TableS1, file = "./Results/TableS1.csv")
 
 
-# 3 Model Training---------------------------------------
+# 3 ML Analysis Pipeline---------------------------------
 
-## Create empty data.frame to extract fit statistics
-fit.stats = data.frame(method = character(),
-                       model = character(),
-                       r2 = numeric(),
-                       rmse = numeric(),
-                       stringsAsFactors = FALSE)
+# 3.1 Baseline Covariates--------------------------------
 
+## Define parameters
+x = c("t0_bdi_std", "sex_std", "age_std")
 
-# 3.1 Elastic Net Regression-----------------------------
+## Run analysis
+set.seed(8)
+covariates.base.output = nested.cv(data = dat[ids_with_bdi,], 
+                                 x = x,
+                                 y = "t7_bdi_locf",
+                                 k.outer = 5, 
+                                 k.inner = 5, 
+                                 num_repeats = 100, 
+                                 perm.test = FALSE,
+                                 runGLMnet = TRUE,
+                                 runRF = TRUE,
+                                 runSVM = TRUE,
+                                 runBART = FALSE)
 
+# Save results
+save(covariates.base.output, file = "./Results/covariates.base.output.RData")
 
-#trainControl(method = "boot")
+## Run permutation analysis
+set.seed(9)
+covariates.base.perm = nested.cv(data = dat[ids_with_bdi,], 
+                               x = x,
+                               y = "t7_bdi_locf",
+                               k.outer = 5, 
+                               k.inner = 5, 
+                               num_repeats = 100, 
+                               perm.test = TRUE,
+                               runGLMnet = TRUE,
+                               runRF = TRUE,
+                               runBART = FALSE)
 
-# Zou and Hastie’s(2005) recommended default alpha = 0.5.
-
-
-
-# 3.1.1 NULL Model---------------------------------------
-
-set.seed(1)
-model.null.enet = train(x = dat[,c(x, covariates)], y = sample(dat[,y], replace = FALSE), 
-                        method = "glmnet", metric = "RMSE", #alpha = 0.5,
-                        trControl = fitControl)
-print(model.null.enet)
-
-## Save fit statistics
-fit.stats[nrow(fit.stats) + 1, ] = NA
-fit.stats[nrow(fit.stats), c("method", "model")] = c("Elastic Net", "Null")
-fit.stats[nrow(fit.stats), c("rmse", "r2")] = model.null.enet$results %>%
-      filter(RMSE == min(RMSE)) %>% 
-      select(RMSE, Rsquared)
-
-
-
-
-# 3.1.2 Baseline Model-----------------------------------
-
-set.seed(1)
-model.base.enet = train(x = dat[,covariates], y = dat[,y], 
-                         method = "glmnet", metric = "RMSE", #alpha = 0.5,
-                         trControl = fitControl)
-print(model.base.enet)
-
-## Save fit statistics
-fit.stats[nrow(fit.stats) + 1, ] = NA
-fit.stats[nrow(fit.stats), c("method", "model")] = c("Elastic Net", "Baseline")
-fit.stats[nrow(fit.stats), c("rmse", "r2")] = model.base.enet$results %>%
-      filter(RMSE == min(RMSE)) %>% 
-      select(RMSE, Rsquared)
-
-## Save LOOCF predictions
-tuningvalues = as.numeric(model.base.enet$finalModel$tuneValue)
-dat$pred.base.enet = model.base.enet$pred %>% 
-      filter(alpha == tuningvalues[1] & lambda == tuningvalues[2]) %>% 
-      arrange(rowIndex) %>% pull(pred)
+save(covariates.base.perm, file = "./Results/covariates.base.perm.RData")
 
 
 
-# 3.1.3 Cytokine Model-----------------------------------
+
+# 3.2 Cytokines------------------------------------------
 
 
-set.seed(1)
-model.unadj.enet = train(x = dat[,x], y = dat[,y], 
-                         method = "glmnet", metric = "RMSE", #alpha = 0.5,
-                         trControl = fitControl)
-print(model.unadj.enet)
+# 3.2.1 Without Covariates-------------------------------
 
-## Save fit statistics
-fit.stats[nrow(fit.stats) + 1, ] = NA
-fit.stats[nrow(fit.stats), c("method", "model")] = c("Elastic Net", "Cytokines")
-fit.stats[nrow(fit.stats), c("rmse", "r2")] = model.unadj.enet$results %>%
-      filter(RMSE == min(RMSE)) %>% 
-      select(RMSE, Rsquared)
+## Define parameters
+x = cyto_ref$vars
 
-## Save LOOCF predictions
-tuningvalues = as.numeric(model.unadj.enet$finalModel$tuneValue)
-dat$pred.unadj.enet = model.unadj.enet$pred %>% 
-      filter(alpha == tuningvalues[1] & lambda == tuningvalues[2]) %>% 
-      arrange(rowIndex) %>% pull(pred)
+## Run analysis
+set.seed(10)
+cytokine.base.output = nested.cv(data = dat[ids_with_bdi,], 
+                                 x = x,
+                                 y = "t7_bdi_locf",
+                                 k.outer = 5, 
+                                 k.inner = 5, 
+                                 num_repeats = 100, 
+                                 perm.test = FALSE,
+                                 runGLMnet = TRUE,
+                                 runRF = TRUE,
+                                 runSVM = TRUE,
+                                 runBART = FALSE)
 
+# Save results
+save(cytokine.base.output, file = "./Results/cytokine.base.output.RData")
 
-# 3.1.4 Combined-----------------------------------------
+## Run permutation analysis
+set.seed(11)
+cytokine.base.perm = nested.cv(data = dat[ids_with_bdi,], 
+                               x = x,
+                               y = "t7_bdi_locf",
+                               k.outer = 5, 
+                               k.inner = 5, 
+                               num_repeats = 100, 
+                               perm.test = TRUE,
+                               runGLMnet = TRUE,
+                               runRF = TRUE,
+                               runBART = FALSE)
 
-
-set.seed(1)
-model.adj.enet = train(x = dat[,c(x, covariates)], y = dat[,y], 
-                         method = "glmnet", metric = "RMSE", #alpha = 0.5,
-                         trControl = fitControl)
-print(model.adj.enet)
-
-## Save fit statistics
-fit.stats[nrow(fit.stats) + 1, ] = NA
-fit.stats[nrow(fit.stats), c("method", "model")] = c("Elastic Net", "Baseline+Cytokines")
-fit.stats[nrow(fit.stats), c("rmse", "r2")] = model.adj.enet$results %>%
-      filter(RMSE == min(RMSE)) %>% 
-      select(RMSE, Rsquared)
-
-
-## Save LOOCF predictions
-tuningvalues = as.numeric(model.adj.enet$finalModel$tuneValue)
-dat$pred.adj.enet = model.adj.enet$pred %>% 
-      filter(alpha == tuningvalues[1] & lambda == tuningvalues[2]) %>% 
-      arrange(rowIndex) %>% pull(pred)
+save(cytokine.base.perm, file = "./Results/cytokine.base.perm.RData")
 
 
+## Summary statistics
+with(cytokine.base.output$fit, by(RMSE, model, summary))
+with(ML_results$fit[ML_results$fit$model == "glmnet",], hist(RMSE))
 
-# 3.2 Random Forest--------------------------------------
-
-# Surpassing Variable importance threshold?
+with(ML_perm$fit, by(RMSE, model, summary))
 
 
-# 3.2.1 Null Model---------------------------------------
-
-set.seed(1)
-model.null.rf = train(x = dat[,c(x, covariates)], y = sample(dat[,y], replace = FALSE), 
-                      method = "rf", metric = "RMSE", #alpha = 0.5,
-                      trControl = fitControl)
-print(model.null.rf)
-
-## Save fit statistics
-fit.stats[nrow(fit.stats) + 1, ] = NA
-fit.stats[nrow(fit.stats), c("method", "model")] = c("Random Forest", "Null")
-fit.stats[nrow(fit.stats), c("rmse", "r2")] = model.null.rf$results %>%
-      filter(RMSE == min(RMSE)) %>% 
-      select(RMSE, Rsquared)
+t.test(ML_perm$fit[ML_perm$fit$model == "glmnet", "RMSE"], 
+       ML_results$fit[ML_results$fit$model == "glmnet", "RMSE"], var.equal = TRUE)
+t.test(ML_perm$fit[ML_perm$fit$model == "glmnet", "Rsquared"], 
+       ML_results$fit[ML_results$fit$model == "glmnet", "Rsquared"], var.equal = TRUE)
+t.test(ML_perm$fit[ML_perm$fit$model == "rf", "RMSE"], 
+       ML_results$fit[ML_results$fit$model == "rf", "RMSE"], var.equal = TRUE)
+t.test(ML_perm$fit[ML_perm$fit$model == "rf", "Rsquared"], 
+       ML_results$fit[ML_results$fit$model == "rf", "Rsquared"], var.equal = TRUE)
 
 
 
-# 3.2.2 Baseline Model-----------------------------------
-
-set.seed(1)
-model.base.rf = train(x = dat[,covariates], y = dat[,y], 
-                        method = "rf", metric = "RMSE", #alpha = 0.5,
-                        trControl = fitControl)
-print(model.base.rf)
-
-## Save fit statistics
-fit.stats[nrow(fit.stats) + 1, ] = NA
-fit.stats[nrow(fit.stats), c("method", "model")] = c("Random Forest", "Baseline")
-fit.stats[nrow(fit.stats), c("rmse", "r2")] = model.base.rf$results %>%
-      filter(RMSE == min(RMSE)) %>% 
-      select(RMSE, Rsquared)
 
 
-## Save LOOCF predictions
-dat$pred.base.rf = model.base.rf$pred %>% 
-      filter(mtry == as.numeric(model.base.rf$bestTune)) %>% 
-      arrange(rowIndex) %>% pull(pred)
+# 3.2.2 With Covariates----------------------------------
 
 
-# 3.1.3 Cytokine Model-----------------------------------
+## Define parameters
+x = c(cyto_ref$vars, "t0_bdi_std", "sex_std", "age_std")
+
+## Run analysis
+set.seed(12)
+cytokine.comb.output = nested.cv(data = dat[ids_with_bdi,], 
+                                 x = x,
+                                 y = "t7_bdi_locf",
+                                 k.outer = 5, 
+                                 k.inner = 5, 
+                                 num_repeats = 100, 
+                                 perm.test = FALSE,
+                                 runGLMnet = TRUE,
+                                 runRF = TRUE,
+                                 runSVM = TRUE,
+                                 runBART = FALSE)
+
+# Save results
+save(cytokine.comb.output, file = "./Results/cytokine.comb.output.RData")
+
+## Run permutation analysis
+set.seed(13)
+cytokine.comb.perm = nested.cv(data = dat[ids_with_bdi,], 
+                               x = x,
+                               y = "t7_bdi_locf",
+                               k.outer = 5, 
+                               k.inner = 5, 
+                               num_repeats = 100, 
+                               perm.test = TRUE,
+                               runGLMnet = TRUE,
+                               runRF = TRUE,
+                               runBART = FALSE)
+
+save(cytokine.comb.perm, file = "./Results/cytokine.comb.perm.RData")
 
 
-set.seed(1)
-model.unadj.rf = train(x = dat[,x], y = dat[,y], 
-                         method = "rf", metric = "RMSE", #alpha = 0.5,
-                         trControl = fitControl)
-print(model.unadj.rf)
-
-## Save fit statistics
-fit.stats[nrow(fit.stats) + 1, ] = NA
-fit.stats[nrow(fit.stats), c("method", "model")] = c("Random Forest", "Cytokines")
-fit.stats[nrow(fit.stats), c("rmse", "r2")] = model.unadj.rf$results %>%
-      filter(RMSE == min(RMSE)) %>% 
-      select(RMSE, Rsquared)
 
 
-## Save LOOCF predictions
-dat$pred.unadj.rf = model.unadj.rf$pred %>% 
-      filter(mtry == as.numeric(model.unadj.rf$bestTune)) %>% 
-      arrange(rowIndex) %>% pull(pred)
+
+# 3.3 Gene-expression------------------------------------
 
 
-# 3.1.4 Combined-----------------------------------------
+# 3.2.1 Without Covariates-------------------------------
 
 
-set.seed(1)
-model.adj.rf = train(x = dat[,c(x, covariates)], y = dat[,y], 
-                     method = "rf", metric = "RMSE", #alpha = 0.5,
-                     trControl = fitControl)
-print(model.adj.rf)
-
-## Save fit statistics
-fit.stats[nrow(fit.stats) + 1, ] = NA
-fit.stats[nrow(fit.stats), c("method", "model")] = c("Random Forest", "Baseline+Cytokines")
-fit.stats[nrow(fit.stats), c("rmse", "r2")] = model.adj.rf$results %>%
-      filter(RMSE == min(RMSE)) %>% 
-      select(RMSE, Rsquared)
+# 3.2.2 With Covariates----------------------------------
 
 
-## Save LOOCF predictions
-dat$pred.adj.rf = model.adj.rf$pred %>% 
-      filter(mtry == as.numeric(model.adj.rf$bestTune)) %>% 
-      arrange(rowIndex) %>% pull(pred)
+
+# 3.4 Polygenic Risk Scores------------------------------
+
+
+# 3.2.1 Without Covariates-------------------------------
+
+
+# 3.2.2 With Covariates----------------------------------
+
+
+
+# 3.5 Combined Immunophenotyping-------------------------
+
+
+# 3.2.1 Without Covariates-------------------------------
+
+
+# 3.2.2 With Covariates----------------------------------
+
+
+
+# 4 Model Evaluation-------------------------------------
+
+## Create evaluation data.frame
+model.comparison = expand.grid(model = c("Covariates only", "Cytokines", "Gene-expression", 
+                                         "Polygenic risk scores", "Combined immunophenotyping"),
+                               covariates = c("Without covariates", "With covariates"))
+model.comparison$tval = NA
+model.comparison$pval = NA
+
+
+# 4.1 With Covariates------------------------------------
+
+## Covariate model
+
+
+
+## Cytokine model
+t.test.output = t.test(cytokine.base.output$fit$RMSE, cytokine.base.perm$fit$RMSE)
+model.comparison[model.comparison$model == "Cytokines" & 
+                    model.comparison$covariates == "Without covariates", c("tval", "pval")] = 
+c(t.test.output$statistic, t.test.output$p.value)
+
+
+## Gene-expression model
+
+
+## Polygenic risk score model
+
+
+
+# 4.2 Without Covariates---------------------------------
+
+## Covariate model
+
+
+
+## Cytokine model
+
+
+## Gene-expression model
+
+
+## Polygenic risk score model
 
 
 
@@ -289,7 +302,43 @@ dat$pred.adj.rf = model.adj.rf$pred %>%
 
 # 5.1 Preparation----------------------------------------
 
-## Create data
+## Collate fit statistics
+# Add meta-data
+covariates.base.output$fit$pred = "Covariates"
+covariates.base.output$fit$pred.type = "Prediction"
+covariates.base.output$fit$covariates = "With covariates"
+covariates.base.perm$fit$pred = "Covariates"
+covariates.base.perm$fit$pred.type = "Permutation"
+covariates.base.perm$fit$covariates = "With covariates"
+
+cytokine.base.output$fit$pred = "Cytokines"
+cytokine.base.output$fit$pred.type = "Prediction"
+cytokine.base.output$fit$covariates = "Without covariates"
+cytokine.base.perm$fit$pred = "Cytokines"
+cytokine.base.perm$fit$pred.type = "Permutation"
+cytokine.base.perm$fit$covariates = "Without covariates"
+
+cytokine.comb.output$fit$pred = "Cytokines"
+cytokine.comb.output$fit$pred.type = "Prediction"
+cytokine.comb.output$fit$covariates = "With covariates"
+cytokine.comb.perm$fit$pred = "Cytokines"
+cytokine.comb.perm$fit$pred.type = "Permutation"
+cytokine.comb.perm$fit$covariates = "With covariates"
+
+# Rowbind data
+fit.stats = rbind.data.frame(covariates.base.output$fit,
+                             covariates.base.perm$fit,
+                             cytokine.base.output$fit,
+                             cytokine.base.perm$fit,
+                             cytokine.comb.output$fit,
+                             cytokine.comb.perm$fit)
+
+## Recode model
+fit.stats$algorithm = recode(fit.stats$model,
+                             'glmnet' = "Elastic net regression",
+                             'rf' = "Random forest",
+                             'bart' = "BARTmachine")
+
 vis_dat = with(dat, 
                data.frame(t7_bdi_locf = rep(t7_bdi_locf, 6),
                           t7_bdi_pred = c(pred.base.enet, pred.unadj.enet, pred.adj.enet,
@@ -404,17 +453,51 @@ ggplot(vis_dat, aes(x = method, y = abs_residuals)) +
 
 # 5.6 Fit Statistics-------------------------------------
 
-## Set factor levels
-fit.stats$model = factor(fit.stats$model, levels = c("Null", "Baseline", "Cytokines", 
-                                                     "Baseline+Cytokines"))
+## RMSE
+ggplot(fit.stats[fit.stats$model != "bart",], aes(x = pred, y = RMSE)) +
+   geom_violin(aes(fill = pred.type), position = position_dodge(width = 0.8), 
+               col = "black", alpha = 0.8) +
+   stat_boxplot(aes(fill = pred.type), position = position_dodge(width = 0.8), 
+                geom = 'errorbar', width = 0.4) +
+   geom_boxplot(aes(fill = pred.type), outlier.alpha = 0, alpha = 0.5, 
+                position = position_dodge(width = 0.8), col = "black") +
+   #geom_dotplot(aes(col = pred.type, fill = pred.type), position = position_dodge(width = 0.8), 
+   #             binaxis = 'y', stackdir = 'center', dotsize = 0.8, stackratio = 1.5, 
+   #             binwidth = 0.2) +
+   geom_jitter(aes(col = pred.type), alpha = 0.5, size = 0.8,
+               position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2)) +
+   facet_grid(algorithm~covariates, scales = "free_x") +
+   scale_fill_brewer(palette = "Dark2") +
+   scale_color_brewer(palette = "Dark2") +
+   scale_y_continuous(limits = c(0, 20)) +
+   coord_cartesian(expand = FALSE) +
+   labs(x = "", y = "RMSE") +
+   theme_bw() +
+   theme(legend.position = "top",
+         legend.title = element_blank())
 
-ggplot(fit.stats, aes(x = method, y = r2)) +
-      geom_bar(aes(fill = model), stat = "identity", position = position_dodge(), col = "black") +
-      scale_fill_brewer(palette = "Dark2") +
-      scale_y_continuous(limits = c(0, 0.15)) +
-      coord_cartesian(expand = FALSE) +
-      labs(x = "Model", y = expression(R^2)) +
-      theme_bw() +
-      theme(legend.position = "top",
-            legend.title = element_blank())
+## R2
+ggplot(fit.stats[fit.stats$model != "bart",], aes(x = pred, y = Rsquared)) +
+   geom_violin(aes(fill = pred.type), position = position_dodge(width = 0.8), 
+               col = "black", alpha = 0.8) +
+   stat_boxplot(aes(fill = pred.type), position = position_dodge(width = 0.8), 
+                geom = 'errorbar', width = 0.4) +
+   geom_boxplot(aes(fill = pred.type), outlier.alpha = 0, alpha = 0.5, 
+                position = position_dodge(width = 0.8), col = "black") +
+   #geom_dotplot(aes(col = pred.type, fill = pred.type), position = position_dodge(width = 0.8), 
+   #             binaxis = 'y', stackdir = 'center', dotsize = 0.8, stackratio = 1.5, 
+   #             binwidth = 0.2) +
+   geom_jitter(aes(col = pred.type), alpha = 0.3,
+               position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2)) +
+   facet_grid(algorithm~covariates) +
+   scale_fill_brewer(palette = "Dark2") +
+   scale_color_brewer(palette = "Dark2") +
+   scale_y_continuous(limits = c(0, 0.5)) +
+   coord_cartesian(expand = FALSE) +
+   labs(x = "", y = expression(R^2)) +
+   theme_bw() +
+   theme(legend.position = "top",
+         legend.title = element_blank())
+
+
 
