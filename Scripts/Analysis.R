@@ -9,6 +9,7 @@
 library("tidyverse")
 library("ggcorrplot")
 library("RColorBrewer")
+library("gghalves")
 library("caret")
 library("glmnet")
 library("bartMachine")
@@ -305,24 +306,24 @@ c(t.test.output$statistic, t.test.output$p.value)
 ## Collate fit statistics
 # Add meta-data
 covariates.base.output$fit$pred = "Covariates"
-covariates.base.output$fit$pred.type = "Prediction"
+covariates.base.output$fit$pred.type = "Model Prediction"
 covariates.base.output$fit$covariates = "With covariates"
 covariates.base.perm$fit$pred = "Covariates"
-covariates.base.perm$fit$pred.type = "Permutation"
+covariates.base.perm$fit$pred.type = "Null Model"
 covariates.base.perm$fit$covariates = "With covariates"
 
 cytokine.base.output$fit$pred = "Cytokines"
-cytokine.base.output$fit$pred.type = "Prediction"
+cytokine.base.output$fit$pred.type = "Model Prediction"
 cytokine.base.output$fit$covariates = "Without covariates"
 cytokine.base.perm$fit$pred = "Cytokines"
-cytokine.base.perm$fit$pred.type = "Permutation"
+cytokine.base.perm$fit$pred.type = "Null Model"
 cytokine.base.perm$fit$covariates = "Without covariates"
 
 cytokine.comb.output$fit$pred = "Cytokines"
-cytokine.comb.output$fit$pred.type = "Prediction"
+cytokine.comb.output$fit$pred.type = "Model Prediction"
 cytokine.comb.output$fit$covariates = "With covariates"
 cytokine.comb.perm$fit$pred = "Cytokines"
-cytokine.comb.perm$fit$pred.type = "Permutation"
+cytokine.comb.perm$fit$pred.type = "Null Model"
 cytokine.comb.perm$fit$covariates = "With covariates"
 
 # Rowbind data
@@ -338,6 +339,10 @@ fit.stats$algorithm = recode(fit.stats$model,
                              'glmnet' = "Elastic net regression",
                              'rf' = "Random forest",
                              'bart' = "BARTmachine")
+
+## Set factor levels
+fit.stats$covariates = factor(fit.stats$covariates, 
+                              levels = c("Without covariates", "With covariates"))
 
 vis_dat = with(dat, 
                data.frame(t7_bdi_locf = rep(t7_bdi_locf, 6),
@@ -453,20 +458,13 @@ ggplot(vis_dat, aes(x = method, y = abs_residuals)) +
 
 # 5.6 Fit Statistics-------------------------------------
 
-## RMSE
+## RMSE (width=700; height=473)
 ggplot(fit.stats[fit.stats$model != "bart",], aes(x = pred, y = RMSE)) +
-   geom_violin(aes(fill = pred.type), position = position_dodge(width = 0.8), 
-               col = "black", alpha = 0.8) +
-   stat_boxplot(aes(fill = pred.type), position = position_dodge(width = 0.8), 
-                geom = 'errorbar', width = 0.4) +
-   geom_boxplot(aes(fill = pred.type), outlier.alpha = 0, alpha = 0.5, 
-                position = position_dodge(width = 0.8), col = "black") +
-   #geom_dotplot(aes(col = pred.type, fill = pred.type), position = position_dodge(width = 0.8), 
-   #             binaxis = 'y', stackdir = 'center', dotsize = 0.8, stackratio = 1.5, 
-   #             binwidth = 0.2) +
-   geom_jitter(aes(col = pred.type), alpha = 0.5, size = 0.8,
-               position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2)) +
-   facet_grid(algorithm~covariates, scales = "free_x") +
+   geom_half_violin(aes(fill = pred.type), col = "black", alpha = 0.8) +
+   geom_half_boxplot(aes(fill = pred.type), outlier.alpha = 0, alpha = 0.8, col = "black",
+                     errorbar.draw = TRUE, side = "r") +
+   geom_half_point(aes(fill = pred.type, col = pred.type), size = 0.2, alpha = 0.3) +
+   facet_grid(algorithm~covariates) +
    scale_fill_brewer(palette = "Dark2") +
    scale_color_brewer(palette = "Dark2") +
    scale_y_continuous(limits = c(0, 20)) +
@@ -476,19 +474,14 @@ ggplot(fit.stats[fit.stats$model != "bart",], aes(x = pred, y = RMSE)) +
    theme(legend.position = "top",
          legend.title = element_blank())
 
-## R2
+
+
+## R2  (width=700; height=473)
 ggplot(fit.stats[fit.stats$model != "bart",], aes(x = pred, y = Rsquared)) +
-   geom_violin(aes(fill = pred.type), position = position_dodge(width = 0.8), 
-               col = "black", alpha = 0.8) +
-   stat_boxplot(aes(fill = pred.type), position = position_dodge(width = 0.8), 
-                geom = 'errorbar', width = 0.4) +
-   geom_boxplot(aes(fill = pred.type), outlier.alpha = 0, alpha = 0.5, 
-                position = position_dodge(width = 0.8), col = "black") +
-   #geom_dotplot(aes(col = pred.type, fill = pred.type), position = position_dodge(width = 0.8), 
-   #             binaxis = 'y', stackdir = 'center', dotsize = 0.8, stackratio = 1.5, 
-   #             binwidth = 0.2) +
-   geom_jitter(aes(col = pred.type), alpha = 0.3,
-               position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2)) +
+   geom_half_violin(aes(fill = pred.type), col = "black", alpha = 0.8) +
+   geom_half_boxplot(aes(fill = pred.type), outlier.alpha = 0, alpha = 0.8, col = "black",
+                     errorbar.draw = TRUE, side = "r") +
+   geom_half_point(aes(fill = pred.type, col = pred.type), size = 0.2, alpha = 0.3) +
    facet_grid(algorithm~covariates) +
    scale_fill_brewer(palette = "Dark2") +
    scale_color_brewer(palette = "Dark2") +
