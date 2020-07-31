@@ -26,7 +26,7 @@ nested.cv <- function(
    ## Define fitControl object for caret
    fitControl = trainControl(method = "cv",
                              number = k.inner,
-                             savePredictions = TRUE)
+                             savePredictions = FALSE)
    
    ## Define tuneGrid
    glmnet.tuneGrid = expand.grid(alpha = seq(from = 0, to = 1, by = 0.2),
@@ -49,6 +49,18 @@ nested.cv <- function(
    ## Create output data.frame for variable importance
    varImp.stats = fit.stats[, c("num_repeat", "k", "model")]
    varImp.stats[, sort(x)] = NA
+   
+   
+   ## Create output data.frame for individual predictions
+   # Save rowID
+   data$rowID = paste0("r", 1:nrow(data))
+   
+   # Create data.frame
+   pred.stats = expand.grid(num_repeat = 1:num_repeats,
+                            model = c("glmnet", "rf", "bart"))
+   pred.stats[, unique(data$rowID)] = NA
+   
+   
    
    ## Run repeats
    for(repeats in 1:num_repeats)  {
@@ -95,6 +107,10 @@ nested.cv <- function(
             ## Predict in independent test set
             glmnet.preds = predict(glmnet.fit, newdata = test)
             
+            # Save predictions
+            pred.stats[pred.stats$num_repeat == repeats & pred.stats$model == "glmnet", 
+                       test$rowID] = glmnet.preds
+            
             # Save fit statistics
             fit.stats[fit.stats.index, c("RMSE", "Rsquared", "MAE")] = 
                postResample(test[, y], glmnet.preds)
@@ -133,6 +149,11 @@ nested.cv <- function(
             
             ## Predict in independent test set
             rf.preds = predict(rf.fit, newdata = test)
+            
+            # Save predictions
+            pred.stats[pred.stats$num_repeat == repeats & pred.stats$model == "rf", 
+                       test$rowID] = rf.preds
+            
             
             # Save fit statistics
             fit.stats[fit.stats.index, c("RMSE", "Rsquared", "MAE")] = 
@@ -173,6 +194,10 @@ nested.cv <- function(
             ## Predict in independent test set
             bart.preds = predict(bart.fit, newdata = test)
             
+            # Save predictions
+            pred.stats[pred.stats$num_repeat == repeats & pred.stats$model == "bart", 
+                       test$rowID] = bart.preds
+            
             # Save fit statistics
             fit.stats[fit.stats.index, c("RMSE", "Rsquared", "MAE")] = 
                postResample(test[, y], bart.preds)
@@ -193,10 +218,52 @@ nested.cv <- function(
       
    }
    
+   ## Aggregate pred.stats across models using a voting system
+   pred.aggregate.stats = pred.aggregate(preds = pred.stats)
+   
+   
    ## Collate output for fit statistics and variable importance in list
-   output = list(fit = fit.stats, varImp = varImp.stats)
+   output = list(fit = fit.stats, 
+                 varImp = varImp.stats, 
+                 pred = pred.stats,
+                 pred.aggregate = pred.aggregate.stats)
    
    return(output)
    
 }
 
+
+
+# pred.aggregate-----------------------------------------
+
+pred.aggregate <- function(
+   preds
+   ) {
+   
+   ## Get rowindex
+   rowindex = paste0("r", 1:(ncol(preds) - 2))
+   
+   ## Remove prediction output for models that were not run
+   preds = na.omit(preds)
+   
+   ## Round predictions
+   preds[, rowindex] = round(preds[, rowindex])
+   
+   ## transpose
+   tpreds = t(preds[, rowindex])
+   
+   ## Get mode
+   pred.aggregate = apply(tpreds, 1, getmode) %>% as.vector()
+   
+   return(pred.aggregate)
+}
+
+
+# getmode------------------------------------------------
+
+getmode <- function(v) {
+   
+   uniqv = unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+   
+}
