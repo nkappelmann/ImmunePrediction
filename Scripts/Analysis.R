@@ -12,18 +12,27 @@ library("RColorBrewer")
 library("gghalves")
 library("caret")
 library("glmnet")
-library("bartMachine")
 library("PubHelper")
 
 
 ## Load data
-load("/binder/mgp/datasets/2020_ImmuneDepression/cytokine/Nils_Preprocessed/OPTIMA_Cytokine_PreprocessedData.RData")
+# Slurmgate
+#load("/binder/mgp/datasets/2020_ImmuneDepression/cytokine/Nils_Preprocessed/OPTIMA_Cytokine_PreprocessedData.RData")
+
+# MPI local
+load("./Data/OPTIMA_Cytokine_PreprocessedData.RData")
+
 
 # Index participants with minimum of two BDI observations
 ids_with_bdi = dat[, paste0("t", 0:7, "_bdi")] %>% is.na() %>% rowSums < 7
 
 ## Load cytokine reference
-load("/binder/mgp/datasets/2020_ImmuneDepression/cytokine/Nils_Preprocessed/Cytokine_Reference.RData")
+# Slurmgate
+#load("/binder/mgp/datasets/2020_ImmuneDepression/cytokine/Nils_Preprocessed/Cytokine_Reference.RData")
+
+# MPI local
+load("./Data/Cytokine_Reference.RData")
+
 
 ## Source nested cross-validation function
 source("./Scripts/functions.R")
@@ -37,12 +46,12 @@ source("./Scripts/functions.R")
 
 ## Baseline Table of clinical and sociodemographic characteristics
 Table1 = baselineTable(dat, round_dec = 2, placeholder = "   ", grouping.var = "hsCRP_inflamed",
-                       vars = c("sex", "age", "socialclass_cat", 
+                       vars = c("sex", "age", "BMI", "socialclass_cat", 
                                 "countryorigin", "ethnicity", "employed",
                                 "t0_bdi", "t0_madrs", "t0_bsi_depr",
                                 "ward_type",
                                 "t0_cidi_diagnsum"),
-                       labels = c("Sex", "Age", "Social class",
+                       labels = c("Sex", "Age", "BMI", "Social class",
                                   "Country of Origin", "Ethnicity", "Employment status",
                                   "BDI", "MADRS", "BSI: Depression",
                                   "Hospitalisation in",
@@ -63,7 +72,7 @@ exportPubHelpercsv(TableS1, file = "./Results/TableS1.csv")
 # 3.1 Baseline Covariates--------------------------------
 
 ## Define parameters
-x = c("t0_bdi_std", "sex_std", "age_std")
+x = c("t0_bdi_std", "sex_std", "age_std", "BMI_std")
 
 ## Run analysis
 set.seed(8)

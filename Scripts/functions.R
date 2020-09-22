@@ -19,14 +19,16 @@ nested.cv <- function(
    runBART = TRUE
 )  {
    
+   ## Subset data to relevant variables only
+   data = data[, c(x, y)]
+   
    ## Create folds
    obs.all = nrow(data)
    fold.pool.outer = rep_len(sample(1:k.outer), length.out = obs.all)
    
    ## Define fitControl object for caret
    fitControl = trainControl(method = "cv",
-                             number = k.inner,
-                             savePredictions = FALSE)
+                             number = k.inner)
    
    ## Define tuneGrid
    glmnet.tuneGrid = expand.grid(alpha = seq(from = 0, to = 1, by = 0.2),
@@ -102,10 +104,19 @@ nested.cv <- function(
                                        fit.stats$model == "glmnet")
             
             ## Save final tuning parameters
-            fit.stats[fit.stats.index, c("alpha", "lambda")] = glmnet.fit$finalModel$tuneValue
+            fit.stats[fit.stats.index, c("alpha", "lambda")] = glmnet.fit$bestTune
+            
+            
             
             ## Predict in independent test set
             glmnet.preds = predict(glmnet.fit, newdata = test)
+            
+            ## Create MANUAL PREDICTIONS
+            glmnet.coefs = coef(glmnet.fit$finalModel, s = glmnet.fit$bestTune$lambda)
+            manual.preds = as.vector(glmnet.coefs[1,] + glmnet.coefs[2,]*test$t0_bdi_std + 
+                                        glmnet.coefs[3,]*test$sex_std + 
+                                        glmnet.coefs[4,]*test$age_std + 
+                                        glmnet.coefs[5,]*test$BMI_std)
             
             # Save predictions
             pred.stats[pred.stats$num_repeat == repeats & pred.stats$model == "glmnet", 

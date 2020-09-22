@@ -13,11 +13,25 @@ library("readxl")
 library("lme4")
 
 ## Load psychometric data
-load("/home/nkappelmann/OPTIMA/OPTIMA_Analyses/Data/Processed/02_PsychometricData.RData")
+# Slurmgate
+#load("/home/nkappelmann/OPTIMA/OPTIMA_Analyses/Data/Processed/02_PsychometricData.RData")
+
+# MPI local
+load("./Data/02_PsychometricData.RData")
 
 ## Load cytokine data and related IDs
-cyto_dat = readRDS("/binder/mgp/datasets/2020_ImmuneDepression/cytokine/02_data_for_analysis_imputed.rds")
-cyto_IDs = read_excel("/binder/mgp/datasets/2020_ImmuneDepression/cytokine/01_become_optima_randomization_STD_Controls_Pheno_1219.xlsx")
+# Slurmgate
+#cyto_dat = readRDS("/binder/mgp/datasets/2020_ImmuneDepression/cytokine/02_data_for_analysis_imputed.rds")
+#cyto_IDs = read_excel("/binder/mgp/datasets/2020_ImmuneDepression/cytokine/01_become_optima_randomization_STD_Controls_Pheno_1219.xlsx")
+
+# MPI local
+cyto_dat = readRDS("./Data/02_data_for_analysis_imputed.rds")
+cyto_IDs = read_excel("./Data/01_become_optima_randomization_STD_Controls_Pheno_1219.xlsx")
+
+
+## Load BMI data
+bmi = read.csv(file = "./Data/BMI.csv", header = TRUE, sep = ";")
+
 
 # Save biobank study IDs
 cyto_dat$ID.bio = cyto_dat$Row.names
@@ -55,6 +69,10 @@ dat[, c("sex", "age")] = NULL
 dat = merge(dat, cyto_dat, by = "ID", all.x = TRUE)
 
 
+## Merge BMI data
+dat = merge(dat, bmi, by = "ID", all.x = TRUE)
+
+
 # 1.2 Coding---------------------------------------------
 
 ## Create binarised and standardised sex variable
@@ -62,6 +80,9 @@ dat$sex_std = ifelse(dat$sex == "female", 0.5, -0.5)
 
 ## Create standardised age variable
 dat$age_std = scale(dat$age)
+
+## Create standardised bmi variable
+dat$BMI_std = scale(dat$BMI)
 
 ## Create standardised t0_bdi variable
 dat$t0_bdi_std = scale(dat$t0_bdi)
@@ -212,7 +233,16 @@ dat$madrs_locf_improve = dat$t0_madrs - dat$t7_madrs_locf
 # 5 Save Data--------------------------------------------
 
 ## Save main data
-save(dat, file = "/binder/mgp/datasets/2020_ImmuneDepression/cytokine/Nils_Preprocessed/OPTIMA_Cytokine_PreprocessedData.RData")
+# Slurmgate
+#save(dat, file = "/binder/mgp/datasets/2020_ImmuneDepression/cytokine/Nils_Preprocessed/OPTIMA_Cytokine_PreprocessedData.RData")
+
+# MPI local
+save(dat, file = "./Data/OPTIMA_Cytokine_PreprocessedData.RData")
+
 
 ## Save info of inflammatory variables
-save(cyto_ref, file = "/binder/mgp/datasets/2020_ImmuneDepression/cytokine/Nils_Preprocessed/Cytokine_Reference.RData")
+# Slurmgate
+#save(cyto_ref, file = "/binder/mgp/datasets/2020_ImmuneDepression/cytokine/Nils_Preprocessed/Cytokine_Reference.RData")
+
+# MPI local
+save(cyto_ref, file = "./Data/Cytokine_Reference.RData")
