@@ -174,7 +174,7 @@ t.test(ML_perm$fit[ML_perm$fit$model == "rf", "Rsquared"],
 
 
 ## Define parameters
-x = c(cyto_ref$vars, "t0_bdi_std", "sex_std", "age_std")
+x = c(cyto_ref$vars, "t0_bdi_std", "sex_std", "age_std", "BMI_std")
 
 ## Run analysis
 set.seed(12)
@@ -473,10 +473,10 @@ ggplot(fit.stats[fit.stats$model != "bart",], aes(x = pred, y = RMSE)) +
    geom_half_boxplot(aes(fill = pred.type), outlier.alpha = 0, alpha = 0.8, col = "black",
                      errorbar.draw = TRUE, side = "r") +
    geom_half_point(aes(fill = pred.type, col = pred.type), size = 0.2, alpha = 0.3) +
-   facet_grid(algorithm~covariates) +
+   facet_grid(algorithm~covariates, scales = "free_x", space = "free_x") +
    scale_fill_brewer(palette = "Dark2") +
    scale_color_brewer(palette = "Dark2") +
-   scale_y_continuous(limits = c(0, 20)) +
+   #scale_y_continuous(limits = c(0, 20)) +
    coord_cartesian(expand = FALSE) +
    labs(x = "", y = "RMSE") +
    theme_bw() +
@@ -491,10 +491,10 @@ ggplot(fit.stats[fit.stats$model != "bart",], aes(x = pred, y = Rsquared)) +
    geom_half_boxplot(aes(fill = pred.type), outlier.alpha = 0, alpha = 0.8, col = "black",
                      errorbar.draw = TRUE, side = "r") +
    geom_half_point(aes(fill = pred.type, col = pred.type), size = 0.2, alpha = 0.3) +
-   facet_grid(algorithm~covariates) +
+   facet_grid(algorithm~covariates, scales = "free_x", space = "free_x") +
    scale_fill_brewer(palette = "Dark2") +
    scale_color_brewer(palette = "Dark2") +
-   scale_y_continuous(limits = c(0, 0.5)) +
+   #scale_y_continuous(limits = c(0, 0.5)) +
    coord_cartesian(expand = FALSE) +
    labs(x = "", y = expression(R^2)) +
    theme_bw() +
