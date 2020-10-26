@@ -45,7 +45,7 @@ nested.cv <- function(
    glmnet.tuneGrid = expand.grid(alpha = seq(from = 0, to = 1, by = 0.2),
                                  lambda = seq(from = 0, to = 1, by = 0.2))
    rf.tuneGrid = data.frame(mtry = unique(round(seq(from = 2, to = length(x), length.out = 5))))
-   knn.tuneGrid = expand.grid(k = 1:10)
+   knn.tuneGrid = expand.grid(k = 1:25)
    svm.tuneGrid = expand.grid(degree = 1:3, 
                               scale = c(0.001, 0.01, 0.1), 
                               C = c(0.25, 0.5, 1))
