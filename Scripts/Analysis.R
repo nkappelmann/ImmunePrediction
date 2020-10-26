@@ -85,7 +85,9 @@ covariates.base.output = nested.cv(data = dat[ids_with_bdi,],
                                  perm.test = FALSE,
                                  runGLMnet = TRUE,
                                  runRF = TRUE,
-                                 runSVM = TRUE,
+                                 runKNN = TRUE,
+                                 runNNET = FALSE,
+                                 runSVM = FALSE,
                                  runBART = FALSE)
 
 # Save results
@@ -102,6 +104,9 @@ covariates.base.perm = nested.cv(data = dat[ids_with_bdi,],
                                perm.test = TRUE,
                                runGLMnet = TRUE,
                                runRF = TRUE,
+                               runKNN = TRUE,
+                               runNNET = FALSE,
+                               runSVM = FALSE,
                                runBART = FALSE)
 
 save(covariates.base.perm, file = "./Results/covariates.base.perm.RData")
@@ -128,7 +133,9 @@ cytokine.base.output = nested.cv(data = dat[ids_with_bdi,],
                                  perm.test = FALSE,
                                  runGLMnet = TRUE,
                                  runRF = TRUE,
-                                 runSVM = TRUE,
+                                 runKNN = TRUE,
+                                 runNNET = FALSE,
+                                 runSVM = FALSE,
                                  runBART = FALSE)
 
 # Save results
@@ -145,6 +152,9 @@ cytokine.base.perm = nested.cv(data = dat[ids_with_bdi,],
                                perm.test = TRUE,
                                runGLMnet = TRUE,
                                runRF = TRUE,
+                               runKNN = TRUE,
+                               runNNET = FALSE,
+                               runSVM = FALSE,
                                runBART = FALSE)
 
 save(cytokine.base.perm, file = "./Results/cytokine.base.perm.RData")
@@ -187,7 +197,9 @@ cytokine.comb.output = nested.cv(data = dat[ids_with_bdi,],
                                  perm.test = FALSE,
                                  runGLMnet = TRUE,
                                  runRF = TRUE,
-                                 runSVM = TRUE,
+                                 runKNN = TRUE,
+                                 runNNET = FALSE,
+                                 runSVM = FALSE,
                                  runBART = FALSE)
 
 # Save results
@@ -204,6 +216,9 @@ cytokine.comb.perm = nested.cv(data = dat[ids_with_bdi,],
                                perm.test = TRUE,
                                runGLMnet = TRUE,
                                runRF = TRUE,
+                               runKNN = TRUE,
+                               runNNET = FALSE,
+                               runSVM = FALSE,
                                runBART = FALSE)
 
 save(cytokine.comb.perm, file = "./Results/cytokine.comb.perm.RData")
@@ -251,18 +266,31 @@ model.comparison = expand.grid(model = c("Covariates only", "Cytokines", "Gene-e
 model.comparison$tval = NA
 model.comparison$pval = NA
 
+# Remove non-sensival row
+model.comparison = model.comparison[2:nrow(model.comparison),]
+
 
 # 4.1 With Covariates------------------------------------
 
 ## Covariate model
-
+t.test.output = t.test(covariates.base.output$fit$RMSE, covariates.base.perm$fit$RMSE)
+model.comparison[model.comparison$model == "Covariates only" & 
+                    model.comparison$covariates == "With covariates", c("tval", "pval")] = 
+   c(t.test.output$statistic, t.test.output$p.value)
 
 
 ## Cytokine model
+# Without covariates
 t.test.output = t.test(cytokine.base.output$fit$RMSE, cytokine.base.perm$fit$RMSE)
 model.comparison[model.comparison$model == "Cytokines" & 
                     model.comparison$covariates == "Without covariates", c("tval", "pval")] = 
 c(t.test.output$statistic, t.test.output$p.value)
+
+# With covariates
+t.test.output = t.test(cytokine.comb.output$fit$RMSE, cytokine.comb.perm$fit$RMSE)
+model.comparison[model.comparison$model == "Cytokines" & 
+                    model.comparison$covariates == "With covariates", c("tval", "pval")] = 
+   c(t.test.output$statistic, t.test.output$p.value)
 
 
 ## Gene-expression model
@@ -312,6 +340,8 @@ c(t.test.output$statistic, t.test.output$p.value)
 
 # 5.1 Preparation----------------------------------------
 
+# 5.1.1 Fit statistics-----------------------------------
+
 ## Collate fit statistics
 # Add meta-data
 covariates.base.output$fit$pred = "Covariates"
@@ -347,33 +377,64 @@ fit.stats = rbind.data.frame(covariates.base.output$fit,
 fit.stats$algorithm = recode(fit.stats$model,
                              'glmnet' = "Elastic net regression",
                              'rf' = "Random forest",
-                             'bart' = "BARTmachine")
+                             'knn' = "k-nearest neighbour")
 
 ## Set factor levels
 fit.stats$covariates = factor(fit.stats$covariates, 
                               levels = c("Without covariates", "With covariates"))
 
-vis_dat = with(dat, 
-               data.frame(t7_bdi_locf = rep(t7_bdi_locf, 6),
-                          t7_bdi_pred = c(pred.base.enet, pred.unadj.enet, pred.adj.enet,
-                                          pred.base.rf, pred.unadj.rf, pred.adj.rf),
-                          method = c(rep("Elastic Net", 3*nrow(dat)), 
-                                     rep("Random Forest", 3*nrow(dat))),
-                          model = rep(rep(c("Baseline", "Cytokines", "Baseline+Cytokines"), 
-                                          each = nrow(dat)), 2),
-                          r2 = rep(c(summary(lm(t7_bdi_locf ~ pred.base.enet))$r.squared, 
-                                     summary(lm(t7_bdi_locf ~ pred.unadj.enet))$r.squared, 
-                                     summary(lm(t7_bdi_locf ~ pred.adj.enet))$r.squared,
-                                     summary(lm(t7_bdi_locf ~ pred.base.rf))$r.squared, 
-                                     summary(lm(t7_bdi_locf ~ pred.unadj.rf))$r.squared, 
-                                     summary(lm(t7_bdi_locf ~ pred.adj.rf))$r.squared),
-                                   each = nrow(dat))
-               )
-)
 
-## Set factor leves
-vis_dat$model = factor(vis_dat$model, levels = c("Baseline", "Cytokines", "Baseline+Cytokines"))
 
+
+# 5.1.2 Variable importance------------------------------
+
+## Get long-format varImp data
+varImp.stats.comb = aggregate.varImp(cytokine.comb.output)
+varImp.stats.comb.perm = aggregate.varImp(cytokine.comb.perm)
+
+# Add Null Model/ Model Prediction specifier
+varImp.stats.comb$ind$pred.type = "Model Prediction"
+varImp.stats.comb.perm$ind$pred.type = "Null Model"
+
+## Recode model
+varImp.stats.comb$ind$algorithm = recode(varImp.stats.comb$ind$model,
+                                         'glmnet' = "Elastic net regression",
+                                         'rf' = "Random forest",
+                                         'knn' = "k-nearest neighbour")
+varImp.stats.comb.perm$ind$algorithm = recode(varImp.stats.comb.perm$ind$model,
+                                              'glmnet' = "Elastic net regression",
+                                              'rf' = "Random forest",
+                                              'knn' = "k-nearest neighbour")
+
+# Reorder factor levels for permutation results
+varImp.stats.comb.perm$ind$var = factor(varImp.stats.comb.perm$ind$var, 
+                                        levels = levels(varImp.stats.comb$ind$var))
+
+## Combine varImp.stats
+varImp.stats = rbind.data.frame(varImp.stats.comb$ind, varImp.stats.comb.perm$ind)
+
+
+## Obtain test statistics
+varImp.teststats = data.frame(var = levels(varImp.stats$var),
+                              beta = NA,
+                              se = NA,
+                              p = NA,
+                              q = NA)
+
+for(i in varImp.teststats$var)   {
+   
+   # Run regression
+   model = lm(varImp ~ pred.type + algorithm, 
+              data = varImp.stats[varImp.stats$var == i,])
+   
+   # Save results
+   model.results = getGLMTable(model, 
+                               exclude.covariates = "algorithmRandom forest", 
+                               intercept = FALSE)
+   varImp.teststats[varImp.teststats$var == i, c("beta", "se", "p")] = 
+      model.results[, c("Estimate", "SE", "pval")]
+   
+}
 
 
 # 5.2 Cytokine Descriptive Statistics--------------------
@@ -501,5 +562,72 @@ ggplot(fit.stats[fit.stats$model != "bart",], aes(x = pred, y = Rsquared)) +
    theme(legend.position = "top",
          legend.title = element_blank())
 
+
+## Comparison test
+# Cytokines
+with(fit.stats[fit.stats$algorithm == "Elastic net regression" & 
+                  fit.stats$covariates == "Without covariates" & 
+                  fit.stats$pred == "Cytokines", ], 
+     t.test(RMSE ~ pred.type))
+
+# Covariates
+with(fit.stats[fit.stats$algorithm == "Elastic net regression" & 
+                  fit.stats$covariates == "With covariates" & 
+                  fit.stats$pred == "Covariates", ], 
+     t.test(RMSE ~ pred.type))
+
+
+
+# 5.7 Variable importance--------------------------------
+
+## Visualise all variables for model prediction only
+ggplot(na.omit(arrange(varImp.stats.comb$ind, var)), 
+       aes(x = var, y = varImp)) +
+   stat_boxplot(aes(fill = algorithm), col = "black", outlier.alpha = 0, alpha = 0.8) +
+   geom_jitter(aes(fill = algorithm, col = algorithm), size = 0.1, alpha = 0.3) +
+   scale_fill_brewer(palette = "Dark2") +
+   scale_color_brewer(palette = "Dark2") +
+   scale_x_discrete(limits = rev(levels(varImp.stats.comb$ind$var))) +
+   facet_grid(.~algorithm) +
+   coord_flip() +
+   labs(x = "", y = "Variable Importance") +
+   theme_bw() +
+   theme(legend.position = "top",
+         legend.title = element_blank())
+
+## Visualise all variables and compared to Null Model
+ggplot(na.omit(arrange(varImp.stats, var)), 
+       aes(x = var, y = varImp)) +
+   stat_boxplot(aes(fill = pred.type), col = "black", outlier.alpha = 0, alpha = 0.8,
+                position = position_dodge(width = 1)) +
+   geom_jitter(aes(fill = pred.type, col = pred.type), size = 0.08, alpha = 0.3,
+               position = position_jitterdodge(dodge.width = 1)) +
+   scale_fill_brewer(palette = "Dark2") +
+   scale_color_brewer(palette = "Dark2") +
+   scale_x_discrete(limits = rev(levels(varImp.stats.comb$ind$var))) +
+   facet_grid(.~algorithm) +
+   coord_flip() +
+   labs(x = "", y = "Variable Importance") +
+   theme_bw() +
+   theme(legend.position = "top",
+         legend.title = element_blank())
+
+
+# Second attempt with geom_halves
+ggplot(na.omit(arrange(varImp.stats, var)), 
+       aes(x = var, y = varImp)) +
+   geom_half_violin(aes(fill = pred.type), col = "black", alpha = 0.8) +
+   geom_half_boxplot(aes(fill = pred.type), outlier.alpha = 0, alpha = 0.8, col = "black",
+                     errorbar.draw = TRUE, side = "r") +
+   geom_half_point(aes(fill = pred.type, col = pred.type), size = 0.2, alpha = 0.3) +
+   facet_grid(algorithm~covariates, scales = "free_x", space = "free_x") +
+   scale_fill_brewer(palette = "Dark2") +
+   scale_color_brewer(palette = "Dark2") +
+   #scale_y_continuous(limits = c(0, 0.5)) +
+   coord_cartesian(expand = FALSE) +
+   labs(x = "", y = expression(R^2)) +
+   theme_bw() +
+   theme(legend.position = "top",
+         legend.title = element_blank())
 
 
