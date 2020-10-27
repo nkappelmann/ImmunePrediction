@@ -406,12 +406,18 @@ varImp.stats.comb.perm$ind$algorithm = recode(varImp.stats.comb.perm$ind$model,
                                               'rf' = "Random forest",
                                               'knn' = "k-nearest neighbour")
 
+
+## recode variable names (TO DO!)
+
+
 # Reorder factor levels for permutation results
 varImp.stats.comb.perm$ind$var = factor(varImp.stats.comb.perm$ind$var, 
                                         levels = levels(varImp.stats.comb$ind$var))
 
 ## Combine varImp.stats
 varImp.stats = rbind.data.frame(varImp.stats.comb$ind, varImp.stats.comb.perm$ind)
+
+
 
 
 ## Obtain test statistics
@@ -429,7 +435,8 @@ for(i in varImp.teststats$var)   {
    
    # Save results
    model.results = getGLMTable(model, 
-                               exclude.covariates = "algorithmRandom forest", 
+                               exclude.covariates = c("algorithmRandom forest",
+                                                      "algorithmk-nearest neighbour"), 
                                intercept = FALSE)
    varImp.teststats[varImp.teststats$var == i, c("beta", "se", "p")] = 
       model.results[, c("Estimate", "SE", "pval")]
@@ -528,7 +535,7 @@ ggplot(vis_dat, aes(x = method, y = abs_residuals)) +
 
 # 5.6 Fit Statistics-------------------------------------
 
-## RMSE (width=700; height=473)
+## RMSE (width=750; height=507)
 ggplot(fit.stats[fit.stats$model != "bart",], aes(x = pred, y = RMSE)) +
    geom_half_violin(aes(fill = pred.type), col = "black", alpha = 0.8) +
    geom_half_boxplot(aes(fill = pred.type), outlier.alpha = 0, alpha = 0.8, col = "black",
@@ -546,7 +553,7 @@ ggplot(fit.stats[fit.stats$model != "bart",], aes(x = pred, y = RMSE)) +
 
 
 
-## R2  (width=700; height=473)
+## R2  (width=750; height=507)
 ggplot(fit.stats[fit.stats$model != "bart",], aes(x = pred, y = Rsquared)) +
    geom_half_violin(aes(fill = pred.type), col = "black", alpha = 0.8) +
    geom_half_boxplot(aes(fill = pred.type), outlier.alpha = 0, alpha = 0.8, col = "black",
