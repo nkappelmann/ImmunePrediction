@@ -13,7 +13,6 @@ library("gghalves")
 library("caret")
 library("glmnet")
 library("PubHelper")
-library("lme4")
 
 ## Set Slurm directory
 setwd("/home/nkappelmann/OPTIMA/ImmunePrediction")
@@ -24,8 +23,13 @@ load("./Data/OPTIMA_Cytokine_PreprocessedData.RData")
 
 
 ## Load ML model output
-load("./Results/covariates.output.RData")
-load("./Results/cytokines.output.RData")
+#load("./Results/covariates.output.RData")
+load("./Results/clinical.output.RData")
+load("./Results/cytokine.output.RData")
+load("./Results/rna.output.RData")
+load("./Results/prs.output.RData")
+load("./Results/omics.output.RData")
+load("./Results/omicsplus.output.RData")
 
 
 ## Index participants used in analysis
@@ -47,6 +51,9 @@ load("./Data/Cytokine_Reference.RData")
 ## Define vars
 prs.vars = colnames(dat)[grepl("PRS", colnames(dat))]
 rna.vars = colnames(dat)[grepl("rna.PC", colnames(dat))]
+clin.vars = c("t0_bdi_std", "t0_madrs_std", "sex_std", "age_std", "BMI_std", "t0_diagn_by_age_std",
+              paste0("t0_bsi_", c("soma", "zwan", "unsi", "depr", "angs", "aggr", 
+                                  "phob", "para", "psyc"), "_std"))
 
 
 ## Source nested cross-validation function
@@ -58,28 +65,18 @@ source("./Scripts/functions.R")
 # 2.1 Fit statistics-------------------------------------
 
 ## Fit statistics are combined
-fit.stats = rbind.data.frame(covariates.output$fit)
+fit.stats = rbind.data.frame(clinical.output$fit,
+                             cytokine.output$fit,
+                             prs.output$fit,
+                             rna.output$fit,
+                             omics.output$fit,
+                             omicsplus.output$fit)
 
 ## Meta-data is added
 fit.stats$feature.set = rep(c("Clinical", "Cytokines", "PRS", 
                           "Gene expression", "Multi-omics",
-                          "Multi-omics\n+\nClinical"), each = nrow(covariates.output$fit))
+                          "Multi-omics\n+\nClinical"), each = nrow(clinical.output$fit))
 
-
-# 2.2 Statistical tests----------------------------------
-
-## Extract fit difference statistics
-covariates.output$fit[, c("RMSE_delta", "R2_delta")] = extract.fitDiff(covariates.output)
-
-
-## Test
-with(covariates.output$fit, by(RMSE_delta, model, summary))
-
-t.test(covariates.output$fit[covariates.output$fit$type == "pred" & 
-                                covariates.output$fit$model == "glmnet", "RMSE"],
-       covariates.output$fit[covariates.output$fit$type == "perm" & 
-                                covariates.output$fit$model == "glmnet", "RMSE"],
-       paired = TRUE)
 
 
 
@@ -121,6 +118,12 @@ exportPubHelpercsv(TableS1, file = "./Results/TableS1.csv")
 ## Conduct paired t-test by group
 t.test.results = t.test_loop(fit.stats)
 
+## Recode model
+t.test.results$algorithm = recode(t.test.results$model,
+                        'glmnet' = "Elastic net regression",
+                        'rf' = "Random forest",
+                        'knn' = "k-nearest neighbour")
+
 
 ## Plot results
 # RMSE_delta mean + sd
@@ -129,22 +132,22 @@ ggplot(t.test.results, aes(x = feature.set, y = RMSE_delta_mean)) +
    geom_errorbar(aes(ymin = RMSE_delta_mean - RMSE_delta_sd, 
                      ymax = RMSE_delta_mean + RMSE_delta_sd, group = model), 
                  stat = "identity", position = position_dodge(width = 0.3), width = 0.2) +
-   geom_point(aes(fill = model), position = position_dodge(width = 0.3), shape = 21, 
-              col = "black", size = 5) +
-   labs(x = "", y = expression(Delta*RMSE)) +
+   geom_point(aes(fill = algorithm), position = position_dodge(width = 0.3), shape = 21, 
+              col = "black", size = 4) +
+   labs(x = "", y = bquote(Delta*"RMSE: Median (95% CI)")) +
    scale_fill_brewer(palette = "Dark2") +
    theme_bw() +
    theme(legend.position = "top",
          legend.title = element_blank())
 
-# RMSE_delta mean 95% quantile
-ggplot(t.test.results, aes(x = feature.set, y = RMSE_delta_mean)) +
+# RMSE_delta median 95% quantile
+ggplot(t.test.results, aes(x = feature.set, y = RMSE_delta_median)) +
    geom_hline(yintercept = 0, col = "lightgrey", size = 2) +
    geom_errorbar(aes(ymin = RMSE_delta_5quantile, ymax = RMSE_delta_95quantile, group = model), 
-                 stat = "identity", position = position_dodge(width = 0.3), width = 0.2) +
-   geom_point(aes(fill = model), position = position_dodge(width = 0.3), shape = 21, 
-              col = "black", size = 5) +
-   labs(x = "", y = expression(Delta*RMSE)) +
+                 stat = "identity", position = position_dodge(width = 0.4), width = 0.2) +
+   geom_point(aes(fill = algorithm), position = position_dodge(width = 0.4), shape = 21, 
+              col = "black", size = 3) +
+   labs(x = "", y = bquote(Delta*"RMSE: Median (95% CI)")) +
    scale_fill_brewer(palette = "Dark2") +
    theme_bw() +
    theme(legend.position = "top",
@@ -234,27 +237,6 @@ model.comparison[model.comparison$model == "Cytokines" &
 # 5 Visualisation----------------------------------------
 
 
-# 5.1 Preparation----------------------------------------
-
-## Load results again
-load("./Results/covariates.base.output.RData")
-load("./Results/covariates.base.perm.RData")
-load("./Results/cytokine.base.output.RData")
-load("./Results/cytokine.base.perm.RData")
-load("./Results/cytokine.comb.output.RData")
-load("./Results/cytokine.comb.perm.RData")
-load("./Results/rna.base.output.RData")
-load("./Results/rna.base.perm.RData")
-load("./Results/rna.comb.output.RData")
-load("./Results/rna.comb.perm.RData")
-load("./Results/prs.base.output.RData")
-load("./Results/prs.base.perm.RData")
-load("./Results/prs.comb.output.RData")
-load("./Results/prs.comb.perm.RData")
-load("./Results/omics.base.output.RData")
-load("./Results/omics.base.perm.RData")
-load("./Results/omics.comb.output.RData")
-load("./Results/omics.comb.perm.RData")
 
 
 
@@ -327,46 +309,17 @@ omics.comb.perm$fit[, c("pred", "pred.type", "covariates")] =
 
 
 
-# Rowbind data
-fit.stats = rbind.data.frame(covariates.base.output$fit,
-                             covariates.base.perm$fit,
-                             cytokine.base.output$fit,
-                             cytokine.base.perm$fit,
-                             #cytokine.comb.output$fit,
-                             #cytokine.comb.perm$fit,
-                             prs.base.output$fit,
-                             prs.base.perm$fit,
-                             #prs.comb.output$fit,
-                             #prs.comb.perm$fit,
-                             rna.base.output$fit,
-                             rna.base.perm$fit,
-                             #rna.comb.output$fit,
-                             #rna.comb.perm$fit,
-                             omics.base.output$fit,
-                             omics.base.perm$fit,
-                             omics.comb.output$fit,
-                             omics.comb.perm$fit)
-
-## Recode model
-fit.stats$algorithm = recode(fit.stats$model,
-                             'glmnet' = "Elastic net regression",
-                             'rf' = "Random forest",
-                             'knn' = "k-nearest neighbour")
-
-## Set factor levels
-#fit.stats$covariates = factor(fit.stats$covariates, 
-#                              levels = c("Without covariates", "With covariates"))
-fit.stats$pred = factor(fit.stats$pred, 
-                        levels = c("Clinical", "Cytokines", "PRS", 
-                                   "Gene expression", "Multi-omics",
-                                   "Multi-omics\n+\nClinical"))
-
 
 
 # 5.1.2 Variable importance------------------------------
 
 ## Get long-format varImp data
-varImp.stats.comb = aggregate.varImp(omics.comb.output)
+varImp.stats.comb = omicsplus.output$varImp %>%
+   filter(type == "pred") %>%
+   group_by(model) %>%
+   summarise_at(vars(age_std:VEGF.D), median, na.rm = TRUE)
+
+varImp.stats.comb = aggregate.varImp(omicsplus.output)
 varImp.stats.comb.perm = aggregate.varImp(omics.base.perm)
 
 ## Save

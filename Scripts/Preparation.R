@@ -90,6 +90,33 @@ dat$BMI_std = scale(dat$BMI)
 ## Create standardised t0_bdi variable
 dat$t0_bdi_std = scale(dat$t0_bdi)
 
+
+## Create standardised t0_bdi variable
+dat$t0_madrs_std = scale(dat$t0_madrs)
+
+# Impute 3NAs with median
+dat$t0_madrs_std[is.na(dat$t0_madrs_std)] = median(dat$t0_madrs_std, na.rm = TRUE)
+
+# Impute 3NAs with median
+dat$t0_madrs_std[is.na(dat$t0_madrs_std)] = median(dat$t0_madrs_std, na.rm = TRUE)
+
+
+## Create number of previous diagnoses variable divided by age and standardise
+dat$t0_diagn_by_age_std = scale(dat$t0_cidi_diagnsum / dat$age)
+
+# Impute 3NAs with median
+dat$t0_diagn_by_age_std[is.na(dat$t0_diagn_by_age_std)] = median(dat$t0_diagn_by_age_std, na.rm = TRUE)
+
+
+## Create Standardised T0 BSI variables
+dat[, paste0("t0_bsi_", c("soma", "zwan", "unsi", "depr", "angs", "aggr", "phob", "para", "psyc"), "_std")] = 
+   scale(dat[, paste0("t0_bsi_", c("soma", "zwan", "unsi", "depr", "angs", "aggr", "phob", "para", "psyc"))])
+
+## Standardise PID variables
+dat[, paste0("t0_pid_", c("negaff", "detach", "psycho", "antago", "disinh"), "_std")] = 
+   scale(dat[, paste0("t0_pid_", c("negaff", "detach", "psycho", "antago", "disinh"))])
+
+
 ## Get Top 27% CRP cut-off
 dat$hsCRP_inflamed = factor(ifelse(dat$CRP > quantile(dat$hsCRP, prob=1-27/100), 
                                  "Inflamed", "Non-Inflamed"),

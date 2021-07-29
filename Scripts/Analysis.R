@@ -45,6 +45,11 @@ prs.vars = colnames(dat)[grepl("PRS", colnames(dat))]
 ## Define rna.vars
 rna.vars = colnames(dat)[grepl("rna.PC", colnames(dat))]
 
+## Define clinical vars
+clin.vars = c("t0_bdi_std", "t0_madrs_std", "sex_std", "age_std", "BMI_std", "t0_diagn_by_age_std",
+              paste0("t0_bsi_", c("soma", "zwan", "unsi", "depr", "angs", "aggr", 
+                                  "phob", "para", "psyc"), "_std"),
+              paste0("t0_pid_", c("negaff", "detach", "psycho", "antago", "disinh"), "_std"))
 
 ## Source nested cross-validation function
 source("./Scripts/functions.R")
@@ -52,13 +57,13 @@ source("./Scripts/functions.R")
 
 # 2 ML Analysis Pipeline---------------------------------
 
-# 2.1 Baseline Covariates--------------------------------
+# 2.1 Clinical-------------------------------------------
 
 ## Define parameters
-x = c("t0_bdi_std", "sex_std", "age_std", "BMI_std")
+x = clin.vars
 
 ## Run analysis
-covariates.output = nested.cv(data = dat[ids_for_analysis,], 
+clinical.output = nested.cv(data = dat[ids_for_analysis,], 
                               x = x,
                               y = "t7_bdi_locf",
                               k.outer = 5, 
@@ -70,7 +75,7 @@ covariates.output = nested.cv(data = dat[ids_for_analysis,],
                               seed = 10)
 
 # Save results
-save(covariates.output, file = "./Results/covariates.output.RData")
+save(clinical.output, file = "./Results/clinical.output.RData")
 
 
 
@@ -171,10 +176,10 @@ save(omics.output, file = "./Results/omics.output.RData")
 # 2.5.2 With Covariates----------------------------------
 
 ## Define parameters
-x = c(prs.vars, cyto_ref$vars, rna.vars, "t0_bdi_std", "sex_std", "age_std", "BMI_std")
+x = c(clin.vars, prs.vars, cyto_ref$vars, rna.vars)
 
 ## Run analysis
-omicsplus.output = nested.cv(data = dat[ids_for_analysis,], 
+omicsplusclin.output = nested.cv(data = dat[ids_for_analysis,], 
                             x = x,
                             y = "t7_bdi_locf",
                             k.outer = 5, 
@@ -186,5 +191,5 @@ omicsplus.output = nested.cv(data = dat[ids_for_analysis,],
                             seed = 15)
 
 # Save results
-save(omicsplus.output, file = "./Results/omicsplus.output.RData")
+save(omicsplus.output, file = "./Results/omicsplusclin.output.RData")
 

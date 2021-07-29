@@ -418,42 +418,6 @@ rank.aggregate.varImp = function(
 
 
 
-# extract.fitDiff----------------------------------------
-
-extract.fitDiff = function(
-   x = NULL # fit statistics output from nested.xv 
-)  {
-   
-   if(is.null(x)) {stop("X needs to be specified")}
-   
-   
-   output = x$fit
-   output$RMSE_delta = NA
-   output$R2_delta = NA
-   
-   ## Loop over CV folds, repetitions and models
-   for(i in unique(output$num_repeat))   {
-      for(j in unique(output$k))   {
-         for(k in unique(output$model))  {
-            
-            # Get row indices
-            index.pred = which(output$num_repeat == i & output$k == j & 
-                                  output$model == k & output$type == "pred")
-            index.perm = which(output$num_repeat == i & output$k == j & 
-                                  output$model == k & output$type == "perm")
-            
-            # Calculate Delta variables
-            output[index.pred, "RMSE_delta"] = output[index.perm, "RMSE"] - output[index.pred, "RMSE"]
-            output[index.pred, "R2_delta"] = output[index.pred, "Rsquared"] - output[index.perm, "Rsquared"]
-            
-         }
-      }
-   }
-   
-   return(output[, c("RMSE_delta", "R2_delta")])
-   
-}
-
 
 
 # t.test_loop--------------------------------------------
@@ -468,7 +432,7 @@ t.test_loop = function(
                         model = unique(x$model))
    output[, c("RMSE_mean", "RMSE_sd", "R2_median", "R2_25quantile", "R2_75quantile",
               "RMSE_delta_mean", "RMSE_delta_sd", "RMSE_delta_median", "RMSE_delta_5quantile", 
-              "RMSE_delta_95quantile", "RMSE", "R2", "RMSE_delta", "tval", "pval")] = NA
+              "RMSE_delta_95quantile", "RMSE", "R2", "RMSE_delta", "tval", "pval", "quant_pval")] = NA
    
    ## Loop over combinations
    for(i in unique(output$feature.set))   {
@@ -496,6 +460,7 @@ t.test_loop = function(
          output[output.index, "RMSE_delta_median"] = median(RMSE_delta)
          output[output.index, c("RMSE_delta_5quantile", "RMSE_delta_95quantile")] = 
             quantile(RMSE_delta, probs = c(0.05, 0.95))
+         output[output.index, "quant_pval"] = (1 - ecdf(RMSE_delta)(0))
          
          output[output.index, "tval"] = t.test.fit$statistic
          output[output.index, "pval"] = t.test.fit$p.value
@@ -508,7 +473,7 @@ t.test_loop = function(
                                           round(RMSE_sd, round_dec), ")"))
    output[, "R2"] = with(output, paste0(round(R2_median, round_dec), " (", 
                                         round(R2_25quantile, round_dec), "-", 
-                                        round(R2_25quantile, round_dec), ")"))
+                                        round(R2_75quantile, round_dec), ")"))
    
    output[, "RMSE_delta"] = with(output, paste0(round(RMSE_delta_mean, round_dec), " (", 
                                           round(RMSE_delta_sd, round_dec), ")"))
