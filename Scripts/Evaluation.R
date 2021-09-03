@@ -29,7 +29,7 @@ load("./Results/cytokine.output.RData")
 load("./Results/rna.output.RData")
 load("./Results/prs.output.RData")
 load("./Results/omics.output.RData")
-load("./Results/omicsplus.output.RData")
+load("./Results/omicsplusclin.output.RData")
 
 
 ## Index participants used in analysis
@@ -70,7 +70,7 @@ fit.stats = rbind.data.frame(clinical.output$fit,
                              prs.output$fit,
                              rna.output$fit,
                              omics.output$fit,
-                             omicsplus.output$fit)
+                             omicsplusclin.output$fit)
 
 ## Meta-data is added
 fit.stats$feature.set = rep(c("Clinical", "Cytokines", "PRS", 
@@ -151,8 +151,11 @@ ggplot(t.test.results, aes(x = feature.set, y = RMSE_delta_median)) +
    scale_fill_brewer(palette = "Dark2") +
    theme_bw() +
    theme(legend.position = "top",
-         legend.title = element_blank())
-
+         legend.title = element_blank(),
+         plot.background = element_rect(fill = "transparent", color = NA),
+         legend.background = element_rect(fill = "transparent"))
+ggsave(filename = paste0("./Plots/", Sys.Date(), "_PredPerformance_RMSE.png"), 
+       device = "png", width = 6, height = 4, dpi = 300, bg = "transparent")
 
 
 
@@ -313,69 +316,22 @@ omics.comb.perm$fit[, c("pred", "pred.type", "covariates")] =
 
 # 5.1.2 Variable importance------------------------------
 
-## Get long-format varImp data
-varImp.stats.comb = omicsplus.output$varImp %>%
+## Transform variable importance data to long data.frame
+varImp_long = omicsplusclin.output$varImp %>%
+   pivot_longer(cols = age_std:VEGF.D, names_to = "vars", values_to = "varImp") %>%
    filter(type == "pred") %>%
-   group_by(model) %>%
-   summarise_at(vars(age_std:VEGF.D), median, na.rm = TRUE)
+   group_by(vars) %>% 
+   mutate(mean_varImp = mean(varImp)) %>%
+   ungroup() %>%
+   arrange(desc(mean_varImp))
 
-varImp.stats.comb = aggregate.varImp(omicsplus.output)
-varImp.stats.comb.perm = aggregate.varImp(omics.base.perm)
-
-## Save
-save(varImp.stats.comb, file = "./Results/varImp.stats.comb.RData")
-save(varImp.stats.comb.perm, file = "./Results/varImp.stats.comb.perm.RData")
-
-# Add Null Model/ Model Prediction specifier
-varImp.stats.comb$ind$pred.type = "Model Prediction"
-varImp.stats.comb.perm$ind$pred.type = "Null Model"
-
-## Recode model
-varImp.stats.comb$ind$algorithm = recode(varImp.stats.comb$ind$model,
-                                         'glmnet' = "Elastic net regression",
-                                         'rf' = "Random forest",
-                                         'knn' = "k-nearest neighbour")
-varImp.stats.comb.perm$ind$algorithm = recode(varImp.stats.comb.perm$ind$model,
-                                              'glmnet' = "Elastic net regression",
-                                              'rf' = "Random forest",
-                                              'knn' = "k-nearest neighbour")
+# Define algorithm
+varImp_long$algorithm = varImp_long$model %>%
+   recode('glmnet' = "Elastic net regression",
+          'rf' = "Random forest",
+          'knn' = "k-nearest neighbour")
 
 
-## recode variable names (TO DO!)
-
-
-# Reorder factor levels for permutation results
-varImp.stats.comb.perm$ind$var = factor(varImp.stats.comb.perm$ind$var, 
-                                        levels = levels(varImp.stats.comb$ind$var))
-
-## Combine varImp.stats
-varImp.stats = rbind.data.frame(varImp.stats.comb$ind, varImp.stats.comb.perm$ind)
-
-
-
-
-## Obtain test statistics
-varImp.teststats = data.frame(var = levels(varImp.stats$var),
-                              beta = NA,
-                              se = NA,
-                              p = NA,
-                              q = NA)
-
-for(i in varImp.teststats$var)   {
-      
-      # Run regression
-      model = lm(varImp ~ pred.type + algorithm, 
-                 data = varImp.stats[varImp.stats$var == i,])
-      
-      # Save results
-      model.results = getGLMTable(model, 
-                                  exclude.covariates = c("algorithmRandom forest",
-                                                         "algorithmk-nearest neighbour"), 
-                                  intercept = FALSE)
-      varImp.teststats[varImp.teststats$var == i, c("beta", "se", "p")] = 
-            model.results[, c("estimate", "std.error", "p.value")]
-      
-}
 
 
 # 5.2 Cytokine Descriptive Statistics--------------------
@@ -643,33 +599,23 @@ with(fit.stats[fit.stats$algorithm == "Elastic net regression" &
 
 # 5.7 Variable importance--------------------------------
 
-## Set factor levels based on variable importance
-varImp.stats.comb$ind$var = factor(varImp.stats.comb$ind$var, 
-                                   levels = rev(levels(varImp.stats.comb$ind$var)))
 
-## Reduce data to most important variables and arrange
-vis_varImp.stats.comb = varImp.stats.comb$ind %>%
-      filter(var %in% tail(levels(varImp.stats.comb$ind$var), 20)) %>%
-      arrange(var)
+## Reduce data to most important variables
+vis_varImp_long = varImp_long %>%
+      filter(vars %in% head(unique(varImp_long$vars), 20))
 
-## Drop levels
-vis_varImp.stats.comb$var = droplevels(vis_varImp.stats.comb$var)
-
-## Recode variables (TO DO!)
-vis_varImp.stats.comb$var.label = recode(vis_varImp.stats.comb$var,
-                                         'to_bdi_std' = "Baseline Depressive Symptoms (BDI)"
-)
+# Set factor levels
+vis_varImp_long$vars = factor(vis_varImp_long$vars, levels = unique(vis_varImp_long$vars))
 
 
 
 ## Visualise top 20 variables for model prediction only
-
-ggplot(vis_varImp.stats.comb, aes(x = var, y = varImp)) +
+ggplot(vis_varImp_long, aes(x = vars, y = varImp)) +
       stat_boxplot(aes(fill = algorithm), col = "black", outlier.alpha = 0, alpha = 0.8) +
       geom_jitter(aes(fill = algorithm, col = algorithm), size = 0.1, alpha = 0.2) +
       scale_fill_brewer(palette = "Dark2") +
       scale_color_brewer(palette = "Dark2") +
-      scale_x_discrete(limits = rev(levels(vis_varImp.stats.comb$var))) +
+      #scale_x_discrete(limits = rev(levels(vis_varImp.stats.comb$var))) +
       facet_grid(algorithm~.) +
       #coord_flip() +
       labs(x = "", y = "Variable Importance") +
@@ -678,7 +624,7 @@ ggplot(vis_varImp.stats.comb, aes(x = var, y = varImp)) +
             legend.title = element_blank(),
             axis.text.x = element_text(angle = 45, hjust = 1),
             plot.background = element_rect(fill = "transparent", colour = NA),
-            panel.background = element_rect(fill = "transparent", colour = NA),
+            #panel.background = element_rect(fill = "transparent", colour = NA),
             legend.background = element_rect(fill = "transparent", colour = NA))
 ggsave(filename = paste0("./Plots/", Sys.Date(), "_varImp.png"), 
        bg = "transparent", dpi = 600, width = 8, height = 6)

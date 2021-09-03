@@ -78,14 +78,69 @@ dat = merge(dat, bmi, by = "ID", all.x = TRUE)
 
 # 1.2 Coding---------------------------------------------
 
+## Create binarised and standardised sex variable
+dat$sex_std = ifelse(dat$sex == "female", 0.5, -0.5)
+
+## Create standardised age variable
+dat$age_std = scale(dat$age)
+
+## Create standardised bmi variable and polynomials
+dat$BMI_std = scale(dat$BMI)
+dat$BMI_std_2 = dat$BMI_std^2
+dat$BMI_std_3 = dat$BMI_std^3
+
+## Create standardised t0_bdi variable and polynomials
+dat$t0_bdi_std = scale(dat$t0_bdi)
+dat$t0_bdi_std_2 = dat$t0_bdi_std^2
+dat$t0_bdi_std_3 = dat$t0_bdi_std^3
+
+
+## Create standardised MADRS variables and polynomials
+dat$t0_madrs_std = scale(dat$t0_madrs)
+
+dat$t0_madrs_std[is.na(dat$t0_madrs_std)] = median(dat$t0_madrs_std, na.rm = TRUE)
+
+dat$t0_madrs_std_2 = dat$t0_madrs_std^2
+dat$t0_madrs_std_3 = dat$t0_madrs_std^3
+
+
 ## Create number of previous diagnoses variable divided by age and standardise
-dat$t0_diagn_by_age = dat$t0_cidi_diagnsum / dat$age
+dat$t0_diagn_by_age_std = scale(dat$t0_cidi_diagnsum / dat$age)
+
+# Impute 3NAs with median
+dat$t0_diagn_by_age_std[is.na(dat$t0_diagn_by_age_std)] = median(dat$t0_diagn_by_age_std, na.rm = TRUE)
+
+
+## Create Standardised T0 BSI variables
+dat[, paste0("t0_bsi_", c("soma", "zwan", "unsi", "depr", "angs", "aggr", "phob", "para", "psyc"), "_std")] = 
+   scale(dat[, paste0("t0_bsi_", c("soma", "zwan", "unsi", "depr", "angs", "aggr", "phob", "para", "psyc"))])
+
+## Standardise PID variables
+dat[, paste0("t0_pid_", c("negaff", "detach", "psycho", "antago", "disinh"), "_std")] = 
+   scale(dat[, paste0("t0_pid_", c("negaff", "detach", "psycho", "antago", "disinh"))])
 
 
 ## Get Top 27% CRP cut-off
 dat$hsCRP_inflamed = factor(ifelse(dat$CRP > quantile(dat$hsCRP, prob=1-27/100), 
                                  "Inflamed", "Non-Inflamed"),
                           levels = c("Non-Inflamed", "Inflamed"))
+
+
+## Ward
+dat$ward_type = ifelse(grepl("ST", dat$ward, fixed = TRUE), "Ward", "Day-clinic")
+
+
+## Other baseline variables
+
+# Country of origin
+dat$countryorigin = ifelse(dat$countryorigin == 0, "Germany", "Other")
+
+# Ethnicity
+dat$ethnicity = ifelse(dat$ethnicity == 0, "German", "Other")
+
+# Current employment (code retired as extra category)
+dat$employed = ifelse(dat$employed == 1, "Employed", "Unemployed")
+dat[!is.na(dat$unemploymentreason) & dat$unemploymentreason == "retired", "employed"] = "Retired" 
 
 
 ## Set binary variable indicating if cytokine data are complete (following imputation)
@@ -107,19 +162,9 @@ for(i in 0:7)  {
 
 # 2 Preprocessing----------------------------------------
 
-# 2.1 Reduce data to relevant variables------------------
+# 2.1 Interpolation of depressive symptom outcome--------
 
-## Data is reduced to relevant variables
-
-dat = dat[, c("ID", "sex", "age", "BMI", "hsCRP_inflamed", "t0_diagn_by_age",
-              paste0("t", 0:7, "_bdi"), paste0("t", 0:7, "_bdi_som"), "t0_madrs",
-              paste0("t0_pid_", c("negaff", "detach", "psycho", "antago", "disinh")),
-              paste0("t0_bsi_", c("soma", "zwan", "unsi", "depr", "angs", "aggr", "phob", "para", "psyc")))]
-
-
-# 2.2 Interpolation of depressive symptom outcome--------
-
-# 2.2.1 BDI----------------------------------------------
+# 2.1.1 BDI----------------------------------------------
 
 ## Create locf variable
 dat$t7_bdi_locf = NA
@@ -137,7 +182,7 @@ for(i in 1:nrow(dat))   {
 dat$bdi_locf_improve = dat$t0_bdi - dat$t7_bdi_locf
 
 
-# 2.2.2 BDI Somatic--------------------------------------
+# 2.1.2 BDI Somatic--------------------------------------
 
 dat$t7_bdi_som_locf = NA
 
@@ -153,6 +198,24 @@ for(i in 1:nrow(dat))   {
 ## Create change variable by subtracting the t0 from the t7_locf score.
 dat$bdi_som_locf_improve = dat$t0_bdi_som - dat$t7_bdi_som_locf
 
+
+
+# 2.1.3 MADRS--------------------------------------------
+
+## Create empty bdi_locf variable
+dat$t7_madrs_locf = NA
+
+## Run loop to carry forward the last observed bdi-value
+for(i in 1:nrow(dat))   {
+      for(j in c(7, 4, 0))   {
+            if(is.na(dat[i, "t7_madrs_locf"]) & !is.na(dat[i, paste0("t", j, "_madrs")]))     {
+                  dat[i, "t7_madrs_locf"] = dat[i, paste0("t", j, "_madrs")]
+            }
+      }
+}
+
+## Create change variable by subtracting the t0 from the t7_locf score.
+dat$madrs_locf_improve = dat$t0_madrs - dat$t7_madrs_locf
 
 
 # 3 Merge genetic data-----------------------------------

@@ -17,7 +17,6 @@ setwd("/home/nkappelmann/OPTIMA/ImmunePrediction")
 ## Load data
 load("./Data/OPTIMA_Cytokine_PreprocessedData.RData")
 
-
 ## Index participants used in analysis
 # Index participants with minimum of two BDI observations
 ids_with_bdi = dat[, paste0("t", 0:7, "_bdi")] %>% is.na() %>% rowSums < 7
@@ -47,10 +46,12 @@ prs.vars = colnames(dat)[grepl("PRS", colnames(dat))]
 rna.vars = colnames(dat)[grepl("rna.PC", colnames(dat))]
 
 ## Define clinical vars
-clin.vars = c("t0_bdi", "t0_madrs", "t0_madrs", "sex", "age", "BMI", "t0_diagn_by_age",
+clin.vars = c("t0_bdi_std", "t0_bdi_std_2", "t0_bdi_std_3", "t0_madrs_std", "t0_madrs_std_2", 
+              "t0_madrs_std_3", "sex_std", "age_std", "BMI_std", "BMI_std_2", "BMI_std_3",
+              "t0_diagn_by_age_std",
               paste0("t0_bsi_", c("soma", "zwan", "unsi", "depr", "angs", "aggr", 
-                                  "phob", "para", "psyc")),
-              paste0("t0_pid_", c("negaff", "detach", "psycho", "antago", "disinh")))
+                                  "phob", "para", "psyc"), "_std"),
+              paste0("t0_pid_", c("negaff", "detach", "psycho", "antago", "disinh"), "_std"))
 
 ## Source nested cross-validation function
 source("./Scripts/functions.R")
