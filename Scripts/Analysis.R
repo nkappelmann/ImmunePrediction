@@ -25,12 +25,8 @@ ids_with_bdi = dat[, paste0("t", 0:7, "_bdi")] %>% is.na() %>% rowSums < 7
 # Index participants with genetic data
 ids_with_geneticdata = !is.na(dat$BMI_PRS)
 
-# Show overlap
-table(ids_with_bdi, ids_with_geneticdata)
-
 # Index participants with transcriptomic data
 ids_with_rnadata = !is.na(dat$rna.PC1) # Present in all individuals
-
 
 # Index participants with all relevant data
 ids_for_analysis = ids_with_bdi & ids_with_geneticdata & ids_with_rnadata
@@ -64,16 +60,16 @@ source("./Scripts/functions.R")
 x = clin.vars
 
 ## Run analysis
-clinical.output = nested.cv(data = dat[ids_for_analysis,], 
-                              x = x,
-                              y = "t7_bdi_locf",
-                              k.outer = 5, 
-                              k.inner = 5, 
-                              num_repeats = 100, 
-                              runGLMnet = TRUE,
-                              runRF = TRUE,
-                              runKNN = TRUE,
-                              seed = 10)
+clinical.output = nested.cv(df = dat[ids_for_analysis,], 
+                            x = x,
+                            y = "t7_bdi_locf",
+                            k_outer = 5, 
+                            k_inner = 5, 
+                            num_repeats = 100, 
+                            runGLMnet = TRUE,
+                            runRF = TRUE,
+                            runKNN = TRUE,
+                            seed = 10)
 
 # Save results
 save(clinical.output, file = "./Results/clinical.output.RData")

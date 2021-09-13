@@ -6,6 +6,10 @@
 
 library("tidyverse")
 library("tidymodels")
+library("furrr")
+library("vip")
+library("baguette")
+
 
 
 # ml_pipeline--------------------------------------------
@@ -14,20 +18,24 @@ ml_pipeline <- function(
    df,
    x,
    y,
-   k.outer = 10, # number of outer CV folds
-   k.inner = 10, # number of inner CV folds
+   k_outer = 10, # number of outer CV folds
+   k_inner = 10, # number of inner CV folds
    seed = 1 # set Seed for analyses
 )  {
+   
    
    ## Subset data to relevant variables only
    df = df[, c(x, y)] %>%
       mutate_if(is.character, as.factor)
+   colnames(df)[colnames(df) == y] = "y"
    
    ## Set running seed, which is incremented by 1 every time it is used
    runningSeed = seed
    
    ## Define parameters
-   cores <- parallel::detectCores()
+   obs.all = nrow(df)
+   cores = parallel::detectCores() # to do: remove
+   fold_vector = rep_len(1:k_outer, length.out = obs.all)
    
    ## Define models
    # Random forest
@@ -35,7 +43,7 @@ ml_pipeline <- function(
       set_engine("ranger") %>%
       set_mode("regression")
    
-   rf_grid = grid_regular(finalize(mtry(), train_df[, x]), min_n(), levels = 5)
+   rf_grid = grid_regular(finalize(mtry(), df[, x]), min_n(), levels = 5)
    
    # Elastic net
    glmnet_spec = linear_reg(penalty = tune(), mixture = tune()) %>%
@@ -44,14 +52,208 @@ ml_pipeline <- function(
    
    glmnet_grid = grid_regular(penalty(), mixture(), levels = 5)
    
-      
+   # SVM
+   svm_spec = svm_poly(cost = tune(), degree = tune()) %>%
+      set_engine("kernlab") %>%
+      set_mode("regression")
    
-   ## Create Recipe
-   rec = recipe(as.formula(paste0(y, " ~ .")), data = train_df) %>%
-      step_dummy(all_nominal_predictors()) %>%
-      step_zv(all_predictors()) %>%
-      step_normalize(all_numeric_predictors()) %>%
-      step_impute_knn(all_predictors())
+   svm_grid = grid_regular(cost(), degree(), levels = 5)
+   
+   
+   ## Start nested CV
+   for(num_repeat in 1:num_repeats) {
+      
+      cat("\nRepeat no.", num_repeat, "\n")
+      
+      # Assign folds and create permuted Y
+      set.seed(runningSeed)
+      fold_outer = sample(fold_vector)
+      set.seed(runningSeed)
+      df$y_perm = sample(df$y)
+      runningSeed = runningSeed + 1
+      
+      
+      for(outer in 1:k_outer) {
+         
+         if(outer == 1) {cat("\tFold no. 1----")
+         } else {cat(outer, "----", sep = "")}
+         
+         train_df = df[fold_outer != num_repeat,]
+         test_df = df[fold_outer == num_repeat,]
+         
+         set.seed(runningSeed)
+         inner_cv_splits = vfold_cv(train_df, v = k_inner)
+         runningSeed = runningSeed + 1
+         
+         
+         # Create Recipe
+         rec = create_recipe(train_df, y = "actual")
+         rec_perm = create_recipe(train_df, y = "permuted")
+         
+         
+         # Run inner CV----------------------
+         
+         inner_cv = function(wflow, wflow_perm, model_grid, algorithm)   {
+            
+            # Fit and select best model
+            model_fit = wflow %>% 
+               tune_grid(resamples = inner_cv_splits, grid = model_grid, metrics = metric_set(rmse))
+            model_fit_perm = wflow_perm %>% 
+               tune_grid(resamples = inner_cv_splits, grid = model_grid, metrics = metric_set(rmse))
+            
+            best_model = model_fit %>%
+               select_best("rmse")
+            best_model_perm = model_fit_perm %>%
+               select_best("rmse")
+            
+            # Refit to full training data
+            final_wflow = wflow %>% 
+               finalize_workflow(best_model)
+            final_wflow_perm = wflow_perm %>% 
+               finalize_workflow(best_model_perm)
+            
+            final_model_fit = final_wflow %>%
+               fit(train_df)
+            final_model_fit_perm = final_wflow_perm %>%
+               fit(train_df)
+            
+            test_pred = predict(final_model_fit, test_df)
+            test_pred_perm = predict(final_model_fit_perm, test_df)
+            
+            ## Get fit indices
+            fit_output = tibble(
+               num_repeat = num_repeat,
+               k = k_outer,
+               algorithm = algorithm,
+               hyperparameters = best_model
+            )
+            fit_output[, c("RMSE", "R2")] = t(get_fit_indices(test_df, test_pred, y = "actual"))
+            fit_output[, c("RMSE_perm", "R2_perm")] = t(get_fit_indices(test_df, test_pred_perm, y = "perm"))
+            
+            fit_output[, c("mtry", "min_n", "penalty", "mixture", "cost", "degree")] = NA
+            if(algorithm == "rf")   {
+               fit_output[, c("mtry", "min_n")] = best_model[, c("mtry", "min_n")]
+            } else if(algorithm == "glmnet") {
+               fit_output[, c("penalty", "mixture")] = best_model[, c("penalty", "mixture")]
+            } else if(algorithm == "svm") {
+               fit_output[, c("cost", "degree")] = best_model[, c("cost", "degree")]
+            }
+            else {stop("Please specify the algorithm correctly")}
+            
+            
+            ## Get variable importance
+            #var_imp(final_model_fit)
+            
+            
+            return(fit_output)
+            
+         }
+         
+         
+         ## Random forest
+         rf_wflow = workflow() %>% 
+            add_model(rf_spec)
+         rf_wflow_perm = rf_wflow %>% add_recipe(rec_perm)
+         rf_wflow = rf_wflow %>% add_recipe(rec)
+         
+         rf_output = inner_cv(wflow = rf_wflow, wflow_perm = rf_wflow_perm, 
+                              model_grid = rf_grid, algorithm = "rf")
+         
+         
+         ## Elastic net regression
+         glmnet_wflow = workflow() %>% 
+            add_model(glmnet_spec)
+         glmnet_wflow_perm = glmnet_wflow %>% add_recipe(rec_perm)
+         glmnet_wflow = glmnet_wflow %>% add_recipe(rec)
+         
+         glmnet_output = inner_cv(wflow = glmnet_wflow, wflow_perm = glmnet_wflow_perm, 
+                                  model_grid = glmnet_grid, algorithm = "glmnet")
+         
+         
+         ## k-Nearest Neighbour
+         
+         ## SVM
+         svm_wflow = workflow() %>%
+            add_model(svm_spec)
+         svm_wflow_perm = svm_wflow %>% add_recipe(rec_perm)
+         svm_wflow = svm_wflow %>% add_recipe(rec)
+         
+         svm_output = inner_cv(wflow = svm_wflow, wflow_perm = svm_wflow_perm, 
+                                  model_grid = svm_grid, algorithm = "svm")   
+         
+         ## Random forest
+         
+         # Create workflow
+         rf_wflow = workflow() %>% 
+            add_model(rf_spec)
+         rf_wflow_perm = rf_wflow %>% add_recipe(rec_perm)
+         rf_wflow = rf_wflow %>% add_recipe(rec)
+         
+         # Fit
+         rf_fit = rf_wflow %>% 
+            tune_grid(resamples = inner_cv_splits, grid = rf_grid, metrics = metric_set(rmse))
+         rf_fit_perm = rf_wflow_perm %>% 
+            tune_grid(resamples = inner_cv_splits, grid = rf_grid, metrics = metric_set(rmse))
+         
+         # Select best model
+         best_rf = rf_fit %>%
+            select_best("rmse")
+         best_rf_perm = rf_fit_perm %>%
+            select_best("rmse")
+         
+         # Refit to full training data
+         final_rf_wflow = rf_wflow %>% 
+            finalize_workflow(best_rf)
+         final_rf_wflow_perm = rf_wflow_perm %>% 
+            finalize_workflow(best_rf_perm)
+         
+         final_rf_fit = final_rf_wflow %>%
+            fit(train_df) 
+         final_rf_fit_perm = final_rf_wflow_perm %>%
+            fit(train_df)
+         
+         rf_test_pred = predict(final_rf_fit, test_df)
+         rf_test_pred_perm = predict(final_rf_fit_perm, test_df)
+         
+         
+         get_fit_indices(test_df, rf_test_pred, y = "actual")
+         get_fit_indices(test_df, rf_test_pred_perm, y = "perm")
+         
+         temp_output = tibble(
+            num_repeat = num_repeat,
+            k = k_outer,
+            algorithm = "rf",
+            fit_indices = get_fit_indices(test_df, rf_test_pred, y = "actual"),
+            fit_indices_perm = get_fit_indices(test_df, rf_test_pred_perm, y = "perm"),
+            )
+         
+         
+         
+         
+         ## Elastic net regression
+         
+         
+         
+         
+      }
+      
+   }
+   
+   
+   # Define nested CV cycle
+   set.seed(runningSeed)
+   nested_cv_splits = nested_cv(df, 
+                                outside = vfold_cv(v = k_outer, repeats = 5), 
+                                inside = vfold_cv(v = k_inner))
+   runningSeed = runningSeed + 1
+
+   
+   output = tibble()
+   
+   object = nested_cv_splits$splits[[1]]
+   
+   
+
    
    ## Create workflow
    rf_wflow = 
@@ -59,16 +261,7 @@ ml_pipeline <- function(
       add_model(rf_spec) %>% 
       add_recipe(rec)
    
-   ## Split dataset
-   set.seed(runningSeed)
-   df_split <- initial_split(df, prop = (k.outer - 1)/(k.outer))
-   runningSeed = runningSeed + 1
    
-   # Create data frames for the two sets:
-   train_df = training(df_split)
-   test_df  = testing(df_split)
-   
-   train_folds <- vfold_cv(train_df, v = k.inner)
    
    rf_fit = rf_wflow %>% 
       tune_grid(
@@ -93,6 +286,110 @@ ml_pipeline <- function(
    rmse_vec(truth = test_df[, y], estimate = rf_testing_pred$.pred)
    rsq_trad_vec(truth = test_df[, y], estimate = rf_testing_pred$.pred)
 }
+
+# create_recipe------------------------------------------
+
+create_recipe = function(train, y = "actual")  {
+   
+   if(y == "actual") {
+      rec = recipe(y ~ ., data = train) %>%
+         update_role(y_perm, new_role = "id variable")
+   } else if(y == "permuted") {
+      y_name_old = y
+      rec = recipe(y_perm ~ ., data = train) %>%
+         update_role(y, new_role = "id variable")
+   } else   {stop("Please define y as 'actual' or 'permuted'")}
+   rec = rec %>%
+      step_dummy(all_nominal_predictors()) %>%
+      step_zv(all_predictors()) %>%
+      step_normalize(all_numeric_predictors()) %>%
+      step_impute_knn(all_predictors())
+   
+   return(rec)
+}
+
+
+# get_fit_indices----------------------------------------
+
+get_fit_indices = function(df, pred, y = "actual")   {
+   output = c(
+      RMSE = rmse_vec(truth = df[, ifelse(y == "actual", "y", "y_perm")], 
+                      estimate = pred$.pred),
+      R2 = rsq_vec(truth = df[, ifelse(y == "actual", "y", "y_perm")], 
+                        estimate = pred$.pred)
+   )
+   return(output)
+}
+
+
+
+# rf_rmse------------------------------------------------
+
+rf_rmse <- function(object, cost = 1) {
+   y_col = ncol(object$data)
+   
+   # Create model specifications
+   rf_spec = rand_forest(mtry = tune(), trees = 1000, min_n = tune()) %>%
+      set_engine("ranger") %>%
+      set_mode("regression")
+   
+   rf_grid = grid_regular(
+      levels = 5,
+      finalize(mtry(), analysis(object) %>% dplyr::select(-y)), 
+      min_n())
+   
+   # Create Recipe
+   rec = recipe(as.formula(paste0(y, " ~ .")), data = analysis(object)) %>%
+      step_dummy(all_nominal_predictors()) %>%
+      step_zv(all_predictors()) %>%
+      step_normalize(all_numeric_predictors()) %>%
+      step_impute_knn(all_predictors())
+   
+   # Create workflow
+   rf_wflow = 
+      workflow() %>% 
+      add_model(rf_spec) %>% 
+      add_recipe(rec)
+   
+   model = 
+      rand_forest(mode = "regression", cost = cost) %>% 
+      set_engine("ranger") %>% 
+      set_mode("regression") %>%
+      fit(y ~ ., data = analysis(object))
+   
+   holdout_pred = 
+      predict(model, assessment(object) %>% dplyr::select(-y)) %>% 
+      bind_cols(assessment(object) %>% dplyr::select(y))
+   
+   rmse(holdout_pred, truth = y, estimate = .pred)$.estimate
+}
+
+# In some case, we want to parameterize the function over the tuning parameter:
+rmse_wrapper <- function(cost, object) svm_rmse(object, cost)
+
+# `object` will be an `rsplit` object for the bootstrap samples
+tune_over_cost <- function(object) {
+   tibble(cost = 2 ^ seq(-2, 8, by = 1)) %>% 
+      mutate(RMSE = map_dbl(cost, rmse_wrapper, object = object))
+}
+
+# `object` is an `rsplit` object in `results$inner_resamples` 
+summarize_tune_results <- function(object) {
+   # Return row-bound tibble that has the 25 bootstrap results
+   map_df(object$splits, tune_over_cost) %>%
+      # For each value of the tuning parameter, compute the 
+      # average RMSE which is the inner bootstrap estimate. 
+      group_by(cost) %>%
+      summarize(mean_RMSE = mean(RMSE, na.rm = TRUE),
+                n = length(RMSE),
+                .groups = "drop")
+}
+
+
+plan(multisession)
+
+tuning_results <- future_map(results$inner_resamples, summarize_tune_results) 
+
 
 # fit_inner_cv_wflow-------------------------------------
 
@@ -136,8 +433,8 @@ nested.cv <- function(
    data, 
    x,
    y,
-   k.outer = 10, # number of outer CV folds
-   k.inner = 10, # number of inner CV folds
+   k_outer = 10, # number of outer CV folds
+   k_inner = 10, # number of inner CV folds
    num_repeats = 1, # number of CV repeats
    runGLMnet = TRUE,
    runRF = TRUE,
@@ -154,12 +451,12 @@ nested.cv <- function(
    ## Create folds
    obs.all = nrow(data)
    set.seed(runningSeed)
-   fold.pool.outer = rep_len(sample(1:k.outer), length.out = obs.all)
+   fold.pool.outer = rep_len(sample(1:k_outer), length.out = obs.all)
    runningSeed = runningSeed + 1
    
    ## Define fitControl object for caret
    fitControl = trainControl(method = "cv",
-                             number = k.inner)
+                             number = k_inner)
    
    ## Define used models
    used.models = c()
@@ -178,7 +475,7 @@ nested.cv <- function(
    
    ## Create output data.frame for fit statistics
    fit.stats = expand.grid(num_repeat = 1:num_repeats,
-                           k = 1:k.outer,
+                           k = 1:k_outer,
                            model = used.models,
                            type = c("pred", "perm"))
    fit.stats[, c("RMSE", "Rsquared", "MAE", "alpha", "lambda", "mtry", "k.knn")] = NA
@@ -195,7 +492,7 @@ nested.cv <- function(
    
    # Create data.frame
    pred.stats = expand.grid(num_repeat = 1:num_repeats,
-                            k = 1:k.outer,
+                            k = 1:k_outer,
                             model = used.models,
                             type = c("pred", "perm"))
    pred.stats[, unique(data$rowID)] = NA
@@ -219,7 +516,7 @@ nested.cv <- function(
       runningSeed = runningSeed + 1
       
       ## Run outer CV
-      for(outer in 1:k.outer) {
+      for(outer in 1:k_outer) {
          
          ## Print outer fold number to index progress
          cat(paste0("\n---Outer CV-Fold no.:\t", outer))
