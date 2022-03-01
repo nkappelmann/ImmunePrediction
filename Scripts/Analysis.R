@@ -7,8 +7,6 @@
 
 ## Load packages
 library("tidyverse")
-library("caret")
-library("glmnet")
 
 ## Set Slurm directory
 setwd("/home/nkappelmann/OPTIMA/ImmunePrediction")
@@ -35,18 +33,15 @@ ids_for_analysis = ids_with_bdi & ids_with_geneticdata & ids_with_rnadata
 load("./Data/Cytokine_Reference.RData")
 
 
-## Define prs.vars
+## Define üredictor variable sets
 prs.vars = colnames(dat)[grepl("PRS", colnames(dat))]
-
-
-## Define rna.vars
 rna.vars = colnames(dat)[grepl("rna.PC", colnames(dat))]
-
-## Define clinical vars
-clin.vars = c("t0_bdi", "t0_madrs", "t0_madrs", "sex", "age", "BMI", "t0_diagn_by_age",
+clin.vars = c("t0_madrs", "sex", "age", "BMI", "t0_diagn_by_age", 
+              paste0("t0_cidi_", c("depression_episode", "depression_recurrent", 
+                                   "anxiety", "substance")), 
+              paste0("t0_pid_", c("negaff", "detach", "psycho", "antago", "disinh")),
               paste0("t0_bsi_", c("soma", "zwan", "unsi", "depr", "angs", "aggr", 
-                                  "phob", "para", "psyc")),
-              paste0("t0_pid_", c("negaff", "detach", "psycho", "antago", "disinh")))
+                                  "phob", "para", "psyc")))
 
 ## Source nested cross-validation function
 source("./Scripts/functions.R")
@@ -60,16 +55,15 @@ source("./Scripts/functions.R")
 x = clin.vars
 
 ## Run analysis
-clinical.output = nested.cv(df = dat[ids_for_analysis,], 
-                            x = x,
-                            y = "t7_bdi_locf",
-                            k_outer = 5, 
-                            k_inner = 5, 
-                            num_repeats = 100, 
-                            runGLMnet = TRUE,
-                            runRF = TRUE,
-                            runKNN = TRUE,
-                            seed = 10)
+clinical.output = ml_pipeline(df = dat[ids_for_analysis,], 
+                              x = x,
+                              y = "bdi_locf_improve",
+                              k_outer = 5, 
+                              k_inner = 5, 
+                              num_repeats = 10, 
+                              parallel = TRUE,
+                              seed = 10)
+
 
 # Save results
 save(clinical.output, file = "./Results/clinical.output.RData")
@@ -82,16 +76,14 @@ save(clinical.output, file = "./Results/clinical.output.RData")
 x = cyto_ref$vars
 
 ## Run analysis
-cytokine.output = nested.cv(data = dat[ids_for_analysis,], 
-                            x = x,
-                            y = "t7_bdi_locf",
-                            k.outer = 5, 
-                            k.inner = 5, 
-                            num_repeats = 100, 
-                            runGLMnet = TRUE,
-                            runRF = TRUE,
-                            runKNN = TRUE,
-                            seed = 11)
+cytokine.output = ml_pipeline(df = dat[ids_for_analysis,], 
+                              x = x,
+                              y = "bdi_locf_improve",
+                              k_outer = 5, 
+                              k_inner = 5, 
+                              num_repeats = 100, 
+                              parallel = TRUE,
+                              seed = 11)
 
 # Save results
 save(cytokine.output, file = "./Results/cytokine.output.RData")
@@ -105,16 +97,14 @@ save(cytokine.output, file = "./Results/cytokine.output.RData")
 x = rna.vars
 
 ## Run analysis
-rna.output = nested.cv(data = dat[ids_for_analysis,], 
-                       x = x,
-                       y = "t7_bdi_locf",
-                       k.outer = 5, 
-                       k.inner = 5, 
-                       num_repeats = 100, 
-                       runGLMnet = TRUE,
-                       runRF = TRUE,
-                       runKNN = TRUE,
-                       seed = 12)
+rna.output = ml_pipeline(df = dat[ids_for_analysis,], 
+                         x = x,
+                         y = "bdi_locf_improve",
+                         k_outer = 5, 
+                         k_inner = 5, 
+                         num_repeats = 100, 
+                         parallel = TRUE,
+                         seed = 12)
 
 # Save results
 save(rna.output, file = "./Results/rna.output.RData")
@@ -129,16 +119,14 @@ save(rna.output, file = "./Results/rna.output.RData")
 x = prs.vars
 
 ## Run analysis
-prs.output = nested.cv(data = dat[ids_for_analysis,], 
-                       x = x,
-                       y = "t7_bdi_locf",
-                       k.outer = 5, 
-                       k.inner = 5, 
-                       num_repeats = 100, 
-                       runGLMnet = TRUE,
-                       runRF = TRUE,
-                       runKNN = TRUE,
-                       seed = 13)
+prs.output = ml_pipeline(df = dat[ids_for_analysis,], 
+                         x = x,
+                         y = "bdi_locf_improve",
+                         k_outer = 5, 
+                         k_inner = 5, 
+                         num_repeats = 100, 
+                         parallel = TRUE,
+                         seed = 13)
 
 # Save results
 save(prs.output, file = "./Results/prs.output.RData")
@@ -154,16 +142,14 @@ save(prs.output, file = "./Results/prs.output.RData")
 x = c(prs.vars, cyto_ref$vars, rna.vars)
 
 ## Run analysis
-omics.output = nested.cv(data = dat[ids_for_analysis,], 
-                         x = x,
-                         y = "t7_bdi_locf",
-                         k.outer = 5, 
-                         k.inner = 5, 
-                         num_repeats = 100, 
-                         runGLMnet = TRUE,
-                         runRF = TRUE,
-                         runKNN = TRUE,
-                         seed = 14)
+omics.output = ml_pipeline(df = dat[ids_for_analysis,], 
+                           x = x,
+                           y = "bdi_locf_improve",
+                           k_outer = 5, 
+                           k_inner = 5, 
+                           num_repeats = 100, 
+                           parallel = TRUE,
+                           seed = 14)
 
 # Save results
 save(omics.output, file = "./Results/omics.output.RData")
@@ -176,16 +162,14 @@ save(omics.output, file = "./Results/omics.output.RData")
 x = c(clin.vars, prs.vars, cyto_ref$vars, rna.vars)
 
 ## Run analysis
-omicsplusclin.output = nested.cv(data = dat[ids_for_analysis,], 
-                            x = x,
-                            y = "t7_bdi_locf",
-                            k.outer = 5, 
-                            k.inner = 5, 
-                            num_repeats = 100, 
-                            runGLMnet = TRUE,
-                            runRF = TRUE,
-                            runKNN = TRUE,
-                            seed = 15)
+omicsplusclin.output = ml_pipeline(df = dat[ids_for_analysis,], 
+                                   x = x,
+                                   y = "bdi_locf_improve",
+                                   k_outer = 5, 
+                                   k_inner = 5, 
+                                   num_repeats = 100, 
+                                   parallel = TRUE,
+                                   seed = 15)
 
 # Save results
 save(omicsplus.output, file = "./Results/omicsplusclin.output.RData")
